@@ -4,7 +4,7 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <meta name="theme-color" content="#000000" />
-  <title>M.A.R.V.I.N.</title>
+  <title>Ismaning Flight Radar</title>
 
   <link rel="preconnect" href="https://unpkg.com" />
   <link
@@ -443,6 +443,10 @@
       transform-origin: 50% 50%;
     }
 
+    .aircraft-row.high-altitude .aircraft-icon {
+      color: #777777;
+    }
+
     .aircraft-row.military .aircraft-icon {
       color: var(--accent);
     }
@@ -500,6 +504,11 @@
       justify-content: center;
       color: #ffffff;
       filter: drop-shadow(0 0 5px rgba(255, 255, 255, 0.7));
+    }
+
+    .plane-marker-wrap.high-altitude {
+      color: #777777;
+      filter: drop-shadow(0 0 4px rgba(119, 119, 119, 0.55));
     }
 
     .plane-marker-wrap.military {
@@ -771,7 +780,7 @@
       </div>
 
       <div class="brand-copy">
-        <h1>M.A.R.V.I.N. Marketing Avilus Radar for Visual Identification & Navigation</h1>
+        <h1>Ismaning Flight Radar</h1>
         <p>Live ADS-B traffic around Ismaning · 48.226° N, 11.675° E</p>
       </div>
     </div>
@@ -1079,6 +1088,20 @@
       return militaryStatus(aircraft) !== "no";
     }
 
+    function altitudeColorClass(aircraft) {
+      if (isMilitary(aircraft)) {
+        return "military";
+      }
+
+      const altitude = altitudeFt(aircraft);
+
+      if (Number.isFinite(altitude) && altitude >= 20000) {
+        return "high-altitude";
+      }
+
+      return "low-altitude";
+    }
+
     function setStatus(text, isError = false) {
       document.getElementById("statusText").textContent =
         text;
@@ -1275,16 +1298,12 @@
     }
 
     function markerIcon(aircraft) {
-      const military = isMilitary(aircraft);
+      const colorClass = altitudeColorClass(aircraft);
 
       return L.divIcon({
         className: "plane-marker",
         html: `
-          <div
-            class="plane-marker-wrap ${
-              military ? "military" : ""
-            }"
-          >
+          <div class="plane-marker-wrap ${colorClass}">
             ${aircraftSvg(heading(aircraft))}
           </div>
         `,
@@ -1642,8 +1661,12 @@
                 }</span>`
               : "";
 
+          const visualClass =
+            altitudeColorClass(aircraft);
+
           row.className =
-            "aircraft-row" +
+            "aircraft-row " +
+            visualClass +
             (military !== "no"
               ? " military"
               : "") +
