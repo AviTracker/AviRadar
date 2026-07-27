@@ -152,7 +152,7 @@
       <button id="airportModeBtn" class="control optional">MUC MODE</button>
       <button id="approachBtn" class="control optional">&lt;10K FT</button>
       <select id="categorySelect" class="control optional" title="Kategorie"><option value="all">ALL TYPES</option><option value="airliner">AIRLINER</option><option value="business">BUSINESS</option><option value="helicopter">HELICOPTER</option><option value="ga">GENERAL AVIATION</option><option value="ground">GROUND / OTHER</option></select>
-      <select id="trailLengthSelect" class="control optional" title="Spurlänge"><option value="5">TRACK 5 MIN</option><option value="15" selected>TRACK 15 MIN</option><option value="30">TRACK 30 MIN</option></select>
+      <select id="trailLengthSelect" class="control optional" title="Spurlänge"><option value="session" selected>TRACK SESSION</option><option value="5">TRACK 5 MIN</option><option value="15">TRACK 15 MIN</option><option value="30">TRACK 30 MIN</option></select>
       <select id="radiusSelect" class="control"><option value="25">25 NM</option><option value="50" selected>50 NM</option><option value="75">75 NM</option><option value="100">100 NM</option></select>
       <button id="mapModeBtn" class="control optional">MAP DETAIL</button>
       <button id="opsViewBtn" class="control">OPS VIEW</button>
@@ -192,13 +192,15 @@
   </aside>
 
   <div id="alertBanner" class="alert-banner"><strong>MIL ENTRY //</strong> <span id="alertText"></span></div>
-  <div class="notice">Öffentlich empfangene ADS-B-/MLAT-Daten. Flugspuren werden nur während der geöffneten Sitzung aufgebaut. Nicht zur Navigation oder Einsatzführung.</div>
+  <div class="notice">Öffentlich empfangene ADS-B-/MLAT-Daten. M.A.R.V.I.N. zeichnet Positionen ab dem ersten Live-Abruf dieser Sitzung auf. Beim Anklicken eines Flugzeugs wird dessen bisheriger Session Track angezeigt. Nicht zur Navigation oder Einsatzführung.</div>
 
   <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" crossorigin=""></script>
   <script>
     const CENTER={lat:48.226,lon:11.675};
     const MUC={lat:48.3538,lon:11.7861};
     const REFRESH_MS=30000;
+    const SESSION_STARTED_AT=Date.now();
+    const MAX_TRACK_POINTS=720;
     const AIRCRAFT_API="https://aviradar-api.joschko-hammermann.workers.dev";
     const markers=new Map(),routeCache=new Map(),trackHistory=new Map(),trailLayers=new Map();
     let lastAircraft=[],activeFilter="all",activeCategory="all",airportMode=false,approachMode=false,mapDetail=false,selectedAircraftId=null,trackedIds=new Set(),previousMilitaryIds=new Set(),hasCompletedFirstLiveLoad=false,refreshTimer=null;
@@ -243,18 +245,130 @@
 
     function filteredAircraft(){let arr=lastAircraft.slice();if(activeFilter==="military")arr=arr.filter(isMilitary);if(activeFilter==="civil")arr=arr.filter(a=>!isMilitary(a));if(activeCategory!=="all")arr=arr.filter(a=>category(a)===activeCategory);if(approachMode)arr=arr.filter(a=>{const alt=altitudeFt(a);return alt!==null&&alt<10000});if(airportMode)arr=arr.filter(a=>mucStatus(a)!=="—");return arr}
     function nearestIdFor(arr){if(!arr.length)return null;return arr.reduce((best,a)=>{const d=distanceNm(CENTER,{lat:Number(a.lat),lon:Number(a.lon)});return !best||d<best.d?{id:aircraftId(a),d}:best},null)}
-    function addTrackPoint(a){const id=aircraftId(a),pt={lat:Number(a.lat),lon:Number(a.lon),t:Date.now()};const h=trackHistory.get(id)||[],p=h[h.length-1];if(!p||p.lat!==pt.lat||p.lon!==pt.lon)h.push(pt);const cutoff=Date.now()-35*60*1000;trackHistory.set(id,h.filter(x=>x.t>=cutoff))}
+    function addTrackPoint(a){
+      const id=aircraftId(a);
+      const pt={lat:Number(a.lat),lon:Number(a.lon),t:Date.now()};
+      const h=trackHistory.get(id)||[];
+      const p=h[h.length-1];
+
+      if(!p||p.lat!==pt.lat||p.lon!==pt.lon){
+        h.push(pt);
+      }
+
+      /*
+       * Positionspunkte bleiben für die gesamte geöffnete Sitzung erhalten.
+       * Das Limit verhindert unbegrenztes Speicherwachstum:
+       * 720 Punkte entsprechen bei 30 Sekunden Intervall etwa 6 Stunden.
+       */
+      if(h.length>MAX_TRACK_POINTS){
+        h.splice(0,h.length-MAX_TRACK_POINTS);
+      }
+
+      trackHistory.set(id,h);
+    }
 
     function renderAircraft(ac){lastAircraft=ac.filter(a=>Number.isFinite(Number(a.lat))&&Number.isFinite(Number(a.lon)));lastAircraft.forEach(addTrackPoint);checkMilitaryEntries();applyFilter();trackedIds.forEach(drawTrail);if(selectedAircraftId)updateSelectedPanel()}
     function clearTrail(id){const layer=trailLayers.get(id);if(layer){layer.forEach(l=>map.removeLayer(l));trailLayers.delete(id)}}
-    function drawTrail(id){clearTrail(id);const minutes=Number(document.getElementById("trailLengthSelect").value),cutoff=Date.now()-minutes*60*1000,history=(trackHistory.get(id)||[]).filter(p=>p.t>=cutoff);if(history.length<2)return;const a=lastAircraft.find(x=>aircraftId(x)===id),color=a&&isMilitary(a)?"#DDFF2C":a&&altitudeFt(a)>=20000?"#777777":"#FFFFFF";const line=L.polyline(history.map(p=>[p.lat,p.lon]),{color,weight:3,opacity:.9,dashArray:"8 7",lineCap:"round"}).addTo(map);const end=history[history.length-1],label=L.marker([end.lat,end.lon],{interactive:false,icon:L.divIcon({className:"",html:`<div class="trail-label">TRACK // ${a?callsign(a)||clean(a.r,id.toUpperCase()):id.toUpperCase()}</div>`,iconAnchor:[-12,28]})}).addTo(map);trailLayers.set(id,[line,label])}
+    function drawTrail(id){
+      clearTrail(id);
+
+      const mode=document.getElementById("trailLengthSelect").value;
+      const allHistory=trackHistory.get(id)||[];
+      const history=mode==="session"
+        ? allHistory
+        : allHistory.filter(p=>p.t>=Date.now()-Number(mode)*60*1000);
+
+      if(history.length<2)return;
+
+      const a=lastAircraft.find(x=>aircraftId(x)===id);
+      const color=a&&isMilitary(a)
+        ?"#DDFF2C"
+        :a&&altitudeFt(a)>=20000
+          ?"#777777"
+          :"#FFFFFF";
+
+      const line=L.polyline(
+        history.map(p=>[p.lat,p.lon]),
+        {
+          color,
+          weight:3,
+          opacity:.92,
+          dashArray:"8 7",
+          lineCap:"round",
+          lineJoin:"round"
+        }
+      ).addTo(map);
+
+      /*
+       * Kleine Punkte machen auch langsame oder kurvige Bewegungen sichtbar.
+       * Es wird nur jeder zweite Punkt gezeichnet, damit die Karte ruhig bleibt.
+       */
+      const pointLayers=history
+        .filter((_,index)=>index%2===0)
+        .map(p=>L.circleMarker(
+          [p.lat,p.lon],
+          {
+            radius:2,
+            color,
+            weight:1,
+            opacity:.85,
+            fillColor:color,
+            fillOpacity:.55,
+            interactive:false
+          }
+        ).addTo(map));
+
+      const start=history[0];
+      const end=history[history.length-1];
+
+      const startMarker=L.circleMarker(
+        [start.lat,start.lon],
+        {
+          radius:4,
+          color,
+          weight:1,
+          fillColor:"#000000",
+          fillOpacity:1,
+          interactive:false
+        }
+      ).addTo(map);
+
+      const label=L.marker(
+        [end.lat,end.lon],
+        {
+          interactive:false,
+          icon:L.divIcon({
+            className:"",
+            html:`<div class="trail-label">${
+              mode==="session"?"SESSION":"TRACK "+mode+" MIN"
+            } // ${a?callsign(a)||clean(a.r,id.toUpperCase()):id.toUpperCase()}</div>`,
+            iconAnchor:[-12,28]
+          })
+        }
+      ).addTo(map);
+
+      trailLayers.set(id,[line,startMarker,label,...pointLayers]);
+    }
     function toggleTrack(id){if(trackedIds.has(id)){trackedIds.delete(id);clearTrail(id)}else{trackedIds.add(id);drawTrail(id)}updateSelectedPanel()}
 
     function applyFilter(){const shown=filteredAircraft(),nearest=nearestIdFor(shown),nearestId=nearest?.id||null,active=new Set();shown.forEach(a=>{const id=aircraftId(a),pos=[Number(a.lat),Number(a.lon)];active.add(id);if(markers.has(id)){markers.get(id).setLatLng(pos).setIcon(markerIcon(a,nearestId)).setPopupContent(popupHtml(a))}else{const m=L.marker(pos,{icon:markerIcon(a,nearestId)}).addTo(map).bindPopup(popupHtml(a));m.on("click",()=>selectAircraft(a));m.on("popupopen",async()=>{selectAircraft(a);await getRoute(a);m.setPopupContent(popupHtml(a))});markers.set(id,m)}});for(const[id,m]of markers)if(!active.has(id)){map.removeLayer(m);markers.delete(id)}updateSidebar(shown,nearest);trackedIds.forEach(drawTrail)}
     async function primeRoutes(list){const q=list.filter(a=>callsign(a)&&!routeCache.has(callsign(a))).slice(0,8);for(let i=0;i<q.length;i+=4){const batch=q.slice(i,i+4);await Promise.all(batch.map(getRoute));updateSidebar(filteredAircraft(),nearestIdFor(filteredAircraft()));batch.forEach(a=>markers.get(aircraftId(a))?.setPopupContent(popupHtml(a)))}}
 
-    function selectAircraft(a){selectedAircraftId=aircraftId(a);updateSelectedPanel();updateSidebar(filteredAircraft(),nearestIdFor(filteredAircraft()))}
-    function updateSelectedPanel(){const p=document.getElementById("selectedPanel"),a=lastAircraft.find(x=>aircraftId(x)===selectedAircraftId);if(!a){p.classList.remove("visible");return}p.classList.add("visible");const alt=altitudeFt(a),id=aircraftId(a);document.getElementById("selectedTitle").textContent=clean(a.flight,clean(a.r,a.hex?.toUpperCase()));document.getElementById("selectedSubtitle").textContent=`${clean(a.t,"UNKNOWN")} · ${clean(a.r,"NO REG")} · ${Math.round(heading(a))}°`;document.getElementById("selectedBadges").innerHTML=badgesHtml(a,nearestIdFor(filteredAircraft())?.id);document.getElementById("selectedAltitude").textContent=alt===0?"GROUND":formatFeet(alt);document.getElementById("selectedSpeed").textContent=formatKnots(speedKt(a));document.getElementById("selectedVertical").textContent=formatVertical(a);document.getElementById("selectedDistance").textContent=`${distanceNm(CENTER,{lat:Number(a.lat),lon:Number(a.lon)}).toFixed(1)} NM`;document.getElementById("selectedMuc").textContent=mucStatus(a);document.getElementById("selectedCategory").textContent=categoryLabel(category(a));const btn=document.getElementById("trackToggleBtn");btn.textContent=trackedIds.has(id)?"REMOVE TRACK":"ADD TRACK";btn.classList.toggle("active",trackedIds.has(id))}
+    function selectAircraft(a){
+      selectedAircraftId=aircraftId(a);
+
+      /*
+       * Ein Klick aktiviert die Spur automatisch.
+       * Bereits aktivierte Spuren anderer Flugzeuge bleiben sichtbar,
+       * bis sie über HIDE TRACK entfernt werden.
+       */
+      trackedIds.add(selectedAircraftId);
+      drawTrail(selectedAircraftId);
+
+      updateSelectedPanel();
+      updateSidebar(filteredAircraft(),nearestIdFor(filteredAircraft()));
+    }
+    function updateSelectedPanel(){const p=document.getElementById("selectedPanel"),a=lastAircraft.find(x=>aircraftId(x)===selectedAircraftId);if(!a){p.classList.remove("visible");return}p.classList.add("visible");const alt=altitudeFt(a),id=aircraftId(a);document.getElementById("selectedTitle").textContent=clean(a.flight,clean(a.r,a.hex?.toUpperCase()));document.getElementById("selectedSubtitle").textContent=`${clean(a.t,"UNKNOWN")} · ${clean(a.r,"NO REG")} · ${Math.round(heading(a))}° · TRACK SINCE ${new Date(SESSION_STARTED_AT).toLocaleTimeString("de-DE",{hour:"2-digit",minute:"2-digit"})}`;document.getElementById("selectedBadges").innerHTML=badgesHtml(a,nearestIdFor(filteredAircraft())?.id);document.getElementById("selectedAltitude").textContent=alt===0?"GROUND":formatFeet(alt);document.getElementById("selectedSpeed").textContent=formatKnots(speedKt(a));document.getElementById("selectedVertical").textContent=formatVertical(a);document.getElementById("selectedDistance").textContent=`${distanceNm(CENTER,{lat:Number(a.lat),lon:Number(a.lon)}).toFixed(1)} NM`;document.getElementById("selectedMuc").textContent=mucStatus(a);document.getElementById("selectedCategory").textContent=categoryLabel(category(a));const btn=document.getElementById("trackToggleBtn");btn.textContent=trackedIds.has(id)?"HIDE TRACK":"SHOW TRACK";btn.classList.toggle("active",trackedIds.has(id))}
 
     function updateSidebar(arr,nearest){const airborne=arr.filter(a=>altitudeFt(a)!==0),alts=arr.map(altitudeFt).filter(Number.isFinite),nearestId=nearest?.id||null;document.getElementById("aircraftCount").textContent=arr.length;document.getElementById("airborneCount").textContent=airborne.length;document.getElementById("militaryCount").textContent=arr.filter(isMilitary).length;document.getElementById("nearestAircraft").textContent=nearest?nearest.d.toFixed(1):"—";document.getElementById("maxAltitude").textContent=alts.length?Math.round(Math.max(...alts)/100):"—";const list=document.getElementById("aircraftList");list.innerHTML="";arr.slice().sort((a,b)=>Number(isEmergency(b))-Number(isEmergency(a))||Number(isMilitary(b))-Number(isMilitary(a))||distanceNm(CENTER,{lat:Number(a.lat),lon:Number(a.lon)})-distanceNm(CENTER,{lat:Number(b.lat),lon:Number(b.lon)})).forEach(a=>{const id=aircraftId(a),alt=altitudeFt(a),cls=altitudeColorClass(a),cached=routeCache.get(callsign(a)),route=cached&&typeof cached.then!=="function"?routeText(cached):(callsign(a)?"Route wird geladen …":"Route nicht verfügbar"),row=document.createElement("div");row.className=`aircraft-row ${isMilitary(a)?"military ":""}${isEmergency(a)?"emergency ":""}${id===nearestId?"nearest ":""}${id===selectedAircraftId?"selected":""}`;row.innerHTML=`<div class="aircraft-icon ${cls}">${aircraftSvg(heading(a))}</div><div class="aircraft-main"><strong>${clean(a.flight,clean(a.r,a.hex?.toUpperCase()))}${badgesHtml(a,nearestId)}</strong><span>${categoryLabel(category(a))} · ${clean(a.t,"TYPE UNKNOWN")} · ${formatVertical(a)}</span><span class="route ${cached?"":"loading"}">${route}</span></div><div class="aircraft-data"><span>${alt===0?"GROUND":formatFeet(alt)}</span><span>${distanceNm(CENTER,{lat:Number(a.lat),lon:Number(a.lon)}).toFixed(1)} NM</span></div>`;row.addEventListener("click",async()=>{selectAircraft(a);map.setView([Number(a.lat),Number(a.lon)],Math.max(map.getZoom(),11));markers.get(id)?.openPopup();await getRoute(a);markers.get(id)?.setPopupContent(popupHtml(a));updateSidebar(filteredAircraft(),nearestIdFor(filteredAircraft()))});list.appendChild(row)});if(!arr.length)list.innerHTML='<div style="padding:18px;color:#a9a9a9;font-size:11px;line-height:1.6;border:1px solid rgba(255,255,255,.12);border-radius:12px;background:#050505">Keine passenden Bewegungen im aktiven Filter.</div>'}
 
