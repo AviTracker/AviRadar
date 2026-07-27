@@ -58,21 +58,7 @@
     .segment button{height:30px;min-width:52px;padding:0 9px;cursor:pointer;color:var(--muted);background:transparent;border:0;border-radius:8px;font-size:9px;font-weight:700;letter-spacing:.05em}
     .segment button:hover{color:#fff}
     .segment button.active{color:#000;background:var(--accent)}
-    .fixed-radius{
-      height:40px;
-      display:flex;
-      align-items:center;
-      padding:0 12px;
-      color:var(--text);
-      background:#050505;
-      border:1px solid var(--line);
-      border-radius:11px;
-      font-size:10px;
-      font-weight:600;
-      letter-spacing:.02em;
-      white-space:nowrap;
-    }
-    button.control,select.control{height:40px;padding:0 11px;color:var(--text);background:#050505;border:1px solid var(--line);border-radius:11px;outline:none;font-size:9px;font-weight:600;letter-spacing:.02em;text-transform:uppercase}
+    .fixed-radius{height:40px;display:flex;align-items:center;padding:0 12px;color:var(--text);background:#050505;border:1px solid var(--line);border-radius:11px;font-size:10px;font-weight:600;letter-spacing:.02em;white-space:nowrap}button.control,select.control{height:40px;padding:0 11px;color:var(--text);background:#050505;border:1px solid var(--line);border-radius:11px;outline:none;font-size:9px;font-weight:600;letter-spacing:.02em;text-transform:uppercase}
     button.control{cursor:pointer}
     button.control:hover,select.control:hover,button.control:focus-visible,select.control:focus-visible{border-color:var(--accent);box-shadow:0 0 0 2px rgba(221,255,44,.12)}
     button.primary{color:#000;background:var(--accent);border-color:var(--accent)}
@@ -150,21 +136,7 @@
 
     @media(max-width:1250px){.brand-copy p,.avilus-wordmark{display:none}.controls{max-width:760px}}
     @media(max-width:980px){.topbar{top:10px;right:10px;left:10px;align-items:flex-start}.sidebar{right:10px;bottom:10px;left:10px;top:auto;width:auto;height:49vh}.notice{display:none}.status,#centerBtn{display:none}.summary-grid{grid-template-columns:repeat(5,1fr)}}
-    @media(max-width:680px){.topbar{gap:8px}.brand{gap:8px}.avilus-lockup{padding-right:8px}.avilus-logo{width:30px;height:26px}.brand-copy h1{font-size:10px}.brand-copy h1:before{display:none}.controls{gap:4px}.segment button{min-width:42px;padding:0 6px}.controls .optional{display:none}.fixed-radius{
-      height:40px;
-      display:flex;
-      align-items:center;
-      padding:0 12px;
-      color:var(--text);
-      background:#050505;
-      border:1px solid var(--line);
-      border-radius:11px;
-      font-size:10px;
-      font-weight:600;
-      letter-spacing:.02em;
-      white-space:nowrap;
-    }
-    button.control,select.control{height:35px;padding:0 7px}.summary-grid{grid-template-columns:repeat(2,1fr)}.sidebar{height:55vh}.selected-grid{grid-template-columns:repeat(2,1fr)}}
+    @media(max-width:680px){.topbar{gap:8px}.brand{gap:8px}.avilus-lockup{padding-right:8px}.avilus-logo{width:30px;height:26px}.brand-copy h1{font-size:10px}.brand-copy h1:before{display:none}.controls{gap:4px}.segment button{min-width:42px;padding:0 6px}.controls .optional{display:none}.fixed-radius{height:40px;display:flex;align-items:center;padding:0 12px;color:var(--text);background:#050505;border:1px solid var(--line);border-radius:11px;font-size:10px;font-weight:600;letter-spacing:.02em;white-space:nowrap}button.control,select.control{height:35px;padding:0 7px}.summary-grid{grid-template-columns:repeat(2,1fr)}.sidebar{height:55vh}.selected-grid{grid-template-columns:repeat(2,1fr)}}
   </style>
 </head>
 <body class="map-ops">
@@ -181,7 +153,7 @@
       <button id="approachBtn" class="control optional">&lt;10K FT</button>
       <select id="categorySelect" class="control optional" title="Kategorie"><option value="all">ALL TYPES</option><option value="airliner">AIRLINER</option><option value="business">BUSINESS</option><option value="helicopter">HELICOPTER</option><option value="ga">GENERAL AVIATION</option><option value="ground">GROUND / OTHER</option></select>
       <select id="trailLengthSelect" class="control optional" title="Spurlänge"><option value="session" selected>TRACK SESSION</option><option value="5">TRACK 5 MIN</option><option value="15">TRACK 15 MIN</option><option value="30">TRACK 30 MIN</option></select>
-      <div class="fixed-radius control" title="Fester Erfassungsradius">RADIUS 300 NM</div>
+      <div class="fixed-radius">RADIUS 300 NM</div>
       <button id="mapModeBtn" class="control optional">MAP DETAIL</button>
       <button id="opsViewBtn" class="control">OPS VIEW</button>
       <button id="centerBtn" class="control optional">ISMANING</button>
@@ -241,7 +213,7 @@
 
     L.marker([CENTER.lat,CENTER.lon],{icon:L.divIcon({className:"",html:'<div class="center-marker-wrap"><div class="center-marker"></div><div class="center-brand"><span class="center-logo"></span>AVILUS</div></div>',iconSize:[92,30],iconAnchor:[14,15]})}).addTo(map).bindPopup('<div class="popup-title">ISMANING</div><div>AVILUS Radarzentrum</div>');
     L.circleMarker([MUC.lat,MUC.lon],{radius:6,color:"#fff",weight:1,fillColor:"#183032",fillOpacity:.9}).addTo(map).bindTooltip("MUC",{permanent:true,direction:"right",className:"trail-label"});
-    const rangeCircle=L.circle([CENTER.lat,CENTER.lon],{radius:nmToMeters(50),color:"#DDFF2C",weight:1.5,opacity:.75,fillColor:"#DDFF2C",fillOpacity:.025,dashArray:"3 8"}).addTo(map);
+    const rangeCircle=L.circle([CENTER.lat,CENTER.lon],{radius:nmToMeters(RADAR_RADIUS_NM),color:"#DDFF2C",weight:1.5,opacity:.75,fillColor:"#DDFF2C",fillOpacity:.025,dashArray:"3 8"}).addTo(map);
 
     function aircraftSvg(rotation=0){return `<svg viewBox="0 0 32 32" aria-hidden="true" style="transform:rotate(${rotation}deg)"><path fill="currentColor" d="M16 1.5C17.2 1.5 18 2.4 18 3.7L18.8 11.2L29 17.2C29.8 17.7 30.2 18.5 30 19.3L29.7 20.5L18.6 17.2L18.2 24.7L22.2 27.6L22 29.1L16 27.4L10 29.1L9.8 27.6L13.8 24.7L13.4 17.2L2.3 20.5L2 19.3C1.8 18.5 2.2 17.7 3 17.2L13.2 11.2L14 3.7C14 2.4 14.8 1.5 16 1.5Z"/></svg>`}
     function nmToMeters(n){return n*1852}function rad(d){return d*Math.PI/180}function deg(r){return r*180/Math.PI}
@@ -414,7 +386,6 @@
     document.getElementById("airportModeBtn").addEventListener("click",e=>{airportMode=!airportMode;e.currentTarget.classList.toggle("secondary-active",airportMode);applyFilter()});
     document.getElementById("approachBtn").addEventListener("click",e=>{approachMode=!approachMode;e.currentTarget.classList.toggle("secondary-active",approachMode);applyFilter()});
     document.getElementById("trailLengthSelect").addEventListener("change",()=>trackedIds.forEach(drawTrail));
-    loadAircraft()});
     document.getElementById("mapModeBtn").addEventListener("click",e=>{mapDetail=!mapDetail;document.body.classList.toggle("map-detail",mapDetail);document.body.classList.toggle("map-ops",!mapDetail);if(mapDetail){map.removeLayer(osmLayer);cartoLayer.addTo(map);e.currentTarget.textContent="MAP OPS"}else{map.removeLayer(cartoLayer);osmLayer.addTo(map);e.currentTarget.textContent="MAP DETAIL"}});
     document.getElementById("opsViewBtn").addEventListener("click",e=>{document.body.classList.toggle("ops-view");e.currentTarget.classList.toggle("secondary-active");setTimeout(()=>map.invalidateSize(),250)});
     document.getElementById("trackToggleBtn").addEventListener("click",()=>{if(selectedAircraftId)toggleTrack(selectedAircraftId)});
