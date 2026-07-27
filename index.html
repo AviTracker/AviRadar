@@ -570,6 +570,86 @@
       font-weight: 700;
     }
 
+
+    .avilus-lockup{
+      display:flex;
+      align-items:center;
+      gap:10px;
+      padding-right:14px;
+      margin-right:2px;
+      border-right:1px solid var(--line);
+      flex:0 0 auto;
+    }
+    .avilus-symbol{
+      width:30px;
+      height:24px;
+      display:block;
+    }
+    .avilus-wordmark{
+      font-size:13px;
+      font-weight:700;
+      letter-spacing:.19em;
+      color:#fff;
+      line-height:1;
+    }
+    .filter-segment{
+      display:flex;
+      gap:4px;
+      padding:4px;
+      border:1px solid var(--line);
+      border-radius:12px;
+      background:#050505;
+    }
+    .filter-segment button{
+      height:30px;
+      min-width:58px;
+      padding:0 10px;
+      border:0;
+      border-radius:8px;
+      background:transparent;
+      color:var(--muted);
+      box-shadow:none;
+    }
+    .filter-segment button:hover{
+      color:#fff;
+      border:0;
+      box-shadow:none;
+    }
+    .filter-segment button.active{
+      background:var(--accent);
+      color:#000;
+    }
+    .aircraft-row.selected{
+      border-color:var(--accent);
+      box-shadow:inset 0 0 0 1px rgba(221,255,44,.22);
+    }
+    .trail-label{
+      background:#050505;
+      color:var(--accent);
+      border:1px solid var(--accent);
+      border-radius:7px;
+      padding:3px 6px;
+      font-family:"Roboto Mono",monospace;
+      font-size:9px;
+      white-space:nowrap;
+    }
+    .center-brand{
+      display:flex;
+      align-items:center;
+      gap:4px;
+      color:var(--accent);
+      font-size:7px;
+      letter-spacing:.12em;
+      font-weight:700;
+      white-space:nowrap;
+      transform:translate(14px,-4px);
+    }
+    .center-brand svg{
+      width:11px;
+      height:9px;
+      flex:0 0 auto;
+    }
+
     @media (max-width: 900px) {
       .topbar {
         left: 10px;
@@ -650,7 +730,13 @@
 
   <header class="topbar">
     <div class="brand">
-      <div class="brand-mark" aria-hidden="true"></div>
+      <div class="avilus-lockup" aria-label="Avilus">
+        <svg class="avilus-symbol" viewBox="0 0 60 48" aria-hidden="true">
+          <path d="M3 39 L23 8 L31 8 L15 39 Z" fill="#DDFF2C"></path>
+          <path d="M28 39 L42 8 L57 39 L47 39 L41 25 L36 39 Z" fill="#FFFFFF"></path>
+        </svg>
+        <span class="avilus-wordmark">AVILUS</span>
+      </div>
       <div>
         <h1>Ismaning Flight Radar</h1>
         <p>Live ADS-B traffic around Ismaning · 48.226° N, 11.675° E</p>
@@ -663,11 +749,11 @@
         <span id="statusText">Verbinde …</span>
       </div>
 
-      <select id="trafficFilter" title="Verkehrsfilter">
-        <option value="all">Alle Bewegungen</option>
-        <option value="military">Nur militärisch</option>
-        <option value="civil">Nur zivil / sonstige</option>
-      </select>
+      <div class="filter-segment" aria-label="Verkehrsfilter">
+        <button type="button" class="active" data-filter="all">ALL</button>
+        <button type="button" data-filter="civil">CIVIL</button>
+        <button type="button" data-filter="military">MIL</button>
+      </div>
 
       <select id="radiusSelect" title="Erfassungsradius">
         <option value="25">25 NM</option>
@@ -728,15 +814,20 @@
 
   <script>
     const CENTER = { lat: 48.226, lon: 11.675 };
-    const REFRESH_MS = 15000;
+    const REFRESH_MS = 30000;
 
     const AIRCRAFT_API =
       "https://aviradar-api.joschko-hammermann.workers.dev";
 
     const markers = new Map();
     const routeCache = new Map();
+    const trackHistory = new Map();
 
     let lastAircraft = [];
+    let activeFilter = "all";
+    let selectedAircraftId = null;
+    let selectedTrail = null;
+    let selectedTrailLabel = null;
 
     const map = L.map("map", {
       zoomControl: false
@@ -754,7 +845,16 @@
     L.marker([CENTER.lat, CENTER.lon], {
       icon: L.divIcon({
         className: "",
-        html: '<div class="center-marker"></div>',
+        html: `
+          <div class="center-marker"></div>
+          <div class="center-brand">
+            <svg viewBox="0 0 60 48" aria-hidden="true">
+              <path d="M3 39 L23 8 L31 8 L15 39 Z" fill="#DDFF2C"></path>
+              <path d="M28 39 L42 8 L57 39 L47 39 L41 25 L36 39 Z" fill="#FFFFFF"></path>
+            </svg>
+            AVILUS
+          </div>
+        `,
         iconSize: [18, 18],
         iconAnchor: [9, 9]
       })
@@ -1064,14 +1164,11 @@
     }
 
     function filteredAircraft() {
-      const filter =
-        document.getElementById("trafficFilter").value;
-
-      if (filter === "military") {
+      if (activeFilter === "military") {
         return lastAircraft.filter(isMilitary);
       }
 
-      if (filter === "civil") {
+      if (activeFilter === "civil") {
         return lastAircraft.filter(
           (aircraft) => !isMilitary(aircraft)
         );
@@ -1087,8 +1184,100 @@
           Number.isFinite(Number(item.lon))
       );
 
+      lastAircraft.forEach((item) => {
+        const aircraftId =
+          item.hex || `${item.lat}-${item.lon}`;
+
+        const point = [
+          Number(item.lat),
+          Number(item.lon)
+        ];
+
+        const history = trackHistory.get(aircraftId) || [];
+        const previous = history[history.length - 1];
+
+        if (
+          !previous ||
+          previous[0] !== point[0] ||
+          previous[1] !== point[1]
+        ) {
+          history.push(point);
+
+          if (history.length > 120) {
+            history.shift();
+          }
+
+          trackHistory.set(aircraftId, history);
+        }
+      });
+
       applyFilter();
+
+      if (selectedAircraftId) {
+        drawSelectedTrail(selectedAircraftId);
+      }
       primeRoutes(filteredAircraft().slice(0, 18));
+    }
+
+    function clearSelectedTrail() {
+      if (selectedTrail) {
+        map.removeLayer(selectedTrail);
+        selectedTrail = null;
+      }
+
+      if (selectedTrailLabel) {
+        map.removeLayer(selectedTrailLabel);
+        selectedTrailLabel = null;
+      }
+    }
+
+    function drawSelectedTrail(aircraftId) {
+      clearSelectedTrail();
+
+      const history = trackHistory.get(aircraftId) || [];
+
+      if (history.length < 2) {
+        return;
+      }
+
+      selectedTrail = L.polyline(history, {
+        color: "#DDFF2C",
+        weight: 3,
+        opacity: 0.95,
+        dashArray: "8 7",
+        lineCap: "round",
+        lineJoin: "round"
+      }).addTo(map);
+
+      const selectedAircraft = lastAircraft.find(
+        (aircraft) =>
+          (aircraft.hex || `${aircraft.lat}-${aircraft.lon}`) ===
+          aircraftId
+      );
+
+      const endPoint = history[history.length - 1];
+
+      if (selectedAircraft) {
+        selectedTrailLabel = L.marker(endPoint, {
+          interactive: false,
+          icon: L.divIcon({
+            className: "",
+            html: `<div class="trail-label">TRACK // ${
+              callsign(selectedAircraft) ||
+              clean(selectedAircraft.r, aircraftId.toUpperCase())
+            }</div>`,
+            iconAnchor: [-12, 28]
+          })
+        }).addTo(map);
+      }
+    }
+
+    function selectAircraft(aircraft) {
+      selectedAircraftId =
+        aircraft.hex || `${aircraft.lat}-${aircraft.lon}`;
+
+      drawSelectedTrail(selectedAircraftId);
+      updateSidebar(filteredAircraft());
     }
 
     function applyFilter() {
@@ -1119,7 +1308,12 @@
             .addTo(map)
             .bindPopup(popupHtml(aircraft));
 
+          marker.on("click", () => {
+            selectAircraft(aircraft);
+          });
+
           marker.on("popupopen", async () => {
+            selectAircraft(aircraft);
             await getRoute(aircraft);
             marker.setPopupContent(popupHtml(aircraft));
           });
@@ -1237,9 +1431,14 @@
                 }</span>`
               : "";
 
+          const markerId =
+            aircraft.hex ||
+            `${aircraft.lat}-${aircraft.lon}`;
+
           row.className =
             "aircraft-row" +
-            (military !== "no" ? " military" : "");
+            (military !== "no" ? " military" : "") +
+            (markerId === selectedAircraftId ? " selected" : "");
 
           row.innerHTML = `
             <div
@@ -1282,9 +1481,7 @@
           `;
 
           row.addEventListener("click", async () => {
-            const markerId =
-              aircraft.hex ||
-              `${aircraft.lat}-${aircraft.lon}`;
+            selectAircraft(aircraft);
 
             map.setView(
               [Number(aircraft.lat), Number(aircraft.lon)],
@@ -1412,12 +1609,23 @@
       } catch (error) {
         console.error("Aircraft API error:", error);
 
-        renderAircraft(demoAircraft());
+        if (!lastAircraft.length) {
+          renderAircraft(demoAircraft());
+        }
 
-        setStatus(
-          `Demo · ${error.message || "API-Fehler"}`,
-          true
-        );
+        if (String(error.message).includes("429")) {
+          setStatus(
+            "Rate Limit · erneuter Versuch in 30 s",
+            true
+          );
+        } else {
+          setStatus(
+            `Verbindungsfehler · ${
+              error.message || "API"
+            }`,
+            true
+          );
+        }
       }
     }
 
@@ -1432,10 +1640,36 @@
       });
 
     document
-      .getElementById("trafficFilter")
-      .addEventListener("change", () => {
-        applyFilter();
-        primeRoutes(filteredAircraft().slice(0, 18));
+      .querySelectorAll(".filter-segment button")
+      .forEach((button) => {
+        button.addEventListener("click", () => {
+          activeFilter = button.dataset.filter;
+
+          document
+            .querySelectorAll(".filter-segment button")
+            .forEach((item) => {
+              item.classList.toggle(
+                "active",
+                item === button
+              );
+            });
+
+          if (
+            selectedAircraftId &&
+            !filteredAircraft().some(
+              (aircraft) =>
+                (aircraft.hex ||
+                  `${aircraft.lat}-${aircraft.lon}`) ===
+                selectedAircraftId
+            )
+          ) {
+            selectedAircraftId = null;
+            clearSelectedTrail();
+          }
+
+          applyFilter();
+          primeRoutes(filteredAircraft().slice(0, 18));
+        });
       });
 
     document
