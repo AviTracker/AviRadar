@@ -541,7 +541,7 @@
           <a id="selectedPhotoLink" href="#" target="_blank" rel="noopener noreferrer" hidden>Planespotters ↗</a>
         </div>
         <div id="selectedPhotoStage" class="selected-photo-stage empty"></div>
-        <div id="selectedPhotoCaption" class="selected-photo-caption">Registrierungsbasierte Bildsuche.</div>
+        <div id="selectedPhotoCaption" class="selected-photo-caption">Foto über Wikimedia Commons; Planespotters bleibt verlinkt.</div>
       </div>
       <div class="selected-actions"><button id="trackToggleBtn">ADD TRACK</button><button id="openExchangeBtn">ADS-B EXCHANGE ↗</button><button id="clearSelectionBtn">CLOSE</button></div>
     </section>
@@ -712,90 +712,204 @@
         ?`https://www.planespotters.net/photos/reg/${encodeURIComponent(registration)}`
         :null;
     }
-    function extractPlanespottersImage(html){
-      if(!html)return null;
-      const patterns=[
-        /<meta[^>]+property=["']og:image["'][^>]+content=["']([^"']+)["']/i,
-        /<meta[^>]+content=["']([^"']+)["'][^>]+property=["']og:image["']/i,
-        /"image"\s*:\s*"([^"]+)"/i,
-        /https?:\/\/[^"'\s<>]+\.(?:jpg|jpeg|png|webp)/i
-      ];
-      for(const pattern of patterns){
-        const match=html.match(pattern);
-        if(match&&match[1]){
-          return match[1]
-            .replace(/\\\//g,"/")
-            .replace(/&amp;/g,"&");
-        }
-        if(match&&match[0]&&match[0].startsWith("http")){
-          return match[0].replace(/&amp;/g,"&");
-        }
+    function commonsSearchTerms(a){
+      const registration=clean(a.r,"").toUpperCase().replace(/\s+/g,"");
+      const type=clean(a.t,"").toUpperCase().replace(/\s+/g,"");
+      const operator=clean(a.ownOp,"").trim();
+
+      const terms=[];
+
+      if(registration){
+        terms.push(`"${registration}" aircraft`);
       }
-      return null;
+
+      if(type&&operator){
+        terms.push(`"${type}" "${operator}" aircraft`);
+      }
+
+      if(type){
+        terms.push(`"${type}" aircraft`);
+      }
+
+      return {
+        registration,
+        terms:[...new Set(terms)]
+      };
     }
-    async function getPlanespottersPhoto(a){
-      const reg=clean(a.r,"").toUpperCase().replace(/\s+/g,"");
-      const pageUrl=planespottersUrl(a);
-      if(!reg||!pageUrl)return null;
-      if(planespottersPhotoCache.has(reg))return await planespottersPhotoCache.get(reg);
+
+    function commonsFilePage(title){
+      return `https://commons.wikimedia.org/wiki/${encodeURIComponent(
+        String(title||"").replace(/ /g,"_")
+      )}`;
+    }
+
+    function commonsMetadataValue(metadata,key){
+      return metadata?.[key]?.value || "";
+    }
+
+    function stripHtml(value){
+      const holder=document.createElement("div");
+      holder.innerHTML=String(value||"");
+      return holder.textContent?.trim() || "";
+    }
+
+    async function searchCommonsPhoto(a){
+      const {registration,terms}=commonsSearchTerms(a);
+      const cacheKey=registration || `${clean(a.t,"")}|${clean(a.ownOp,"")}`;
+
+      if(!terms.length){
+        return null;
+      }
+
+      if(planespottersPhotoCache.has(cacheKey)){
+        return await planespottersPhotoCache.get(cacheKey);
+      }
+
       const pending=(async()=>{
-        const candidates=[
-          `https://api.allorigins.win/raw?url=${encodeURIComponent(pageUrl)}`,
-          `https://api.allorigins.win/get?url=${encodeURIComponent(pageUrl)}`
-        ];
-        for(const url of candidates){
+        for(const term of terms){
+          const params=new URLSearchParams({
+            action:"query",
+            generator:"search",
+            gsrsearch:term,
+            gsrnamespace:"6",
+            gsrlimit:"12",
+            prop:"imageinfo",
+            iiprop:"url|extmetadata",
+            iiurlwidth:"1000",
+            format:"json",
+            origin:"*"
+          });
+
           try{
-            const r=await fetch(url,{cache:"force-cache"});
-            if(!r.ok)continue;
-            let payload=null;
-            if(url.includes("/get?")){
-              const j=await r.json();
-              payload=j?.contents||"";
-            }else{
-              payload=await r.text();
+            const response=await fetch(
+              `https://commons.wikimedia.org/w/api.php?${params.toString()}`,
+              {cache:"force-cache"}
+            );
+
+            if(!response.ok){
+              continue;
             }
-            const imageUrl=extractPlanespottersImage(payload);
-            if(imageUrl)return imageUrl;
-          }catch(e){
-            console.warn("Planespotters photo lookup failed",reg,e);
+
+            const data=await response.json();
+            const pages=Object.values(data?.query?.pages||{});
+
+            const ranked=pages
+              .map(page=>{
+                const info=page?.imageinfo?.[0];
+                const metadata=info?.extmetadata||{};
+                const title=String(page?.title||"");
+                const titleUpper=title.toUpperCase();
+                let score=0;
+
+                if(registration&&titleUpper.includes(registration)){
+                  score+=100;
+                }
+
+                const type=clean(a.t,"").toUpperCase();
+                if(type&&titleUpper.includes(type)){
+                  score+=25;
+                }
+
+                const mime=String(info?.mime||"");
+                const usable=Boolean(info?.thumburl||info?.url);
+
+                return {
+                  score,
+                  usable,
+                  imageUrl:info?.thumburl||info?.url||null,
+                  pageUrl:info?.descriptionurl||commonsFilePage(title),
+                  title,
+                  author:stripHtml(
+                    commonsMetadataValue(metadata,"Artist") ||
+                    commonsMetadataValue(metadata,"Credit")
+                  ),
+                  license:stripHtml(
+                    commonsMetadataValue(metadata,"LicenseShortName") ||
+                    commonsMetadataValue(metadata,"UsageTerms")
+                  )
+                };
+              })
+              .filter(item=>item.usable)
+              .sort((a,b)=>b.score-a.score);
+
+            if(ranked.length){
+              return ranked[0];
+            }
+          }catch(error){
+            console.warn("Wikimedia aircraft photo lookup failed",term,error);
           }
         }
+
         return null;
       })();
-      planespottersPhotoCache.set(reg,pending);
+
+      planespottersPhotoCache.set(cacheKey,pending);
       const result=await pending;
-      planespottersPhotoCache.set(reg,result);
+      planespottersPhotoCache.set(cacheKey,result);
       return result;
     }
+
     async function updateSelectedPhoto(a){
       const stage=document.getElementById("selectedPhotoStage");
       const link=document.getElementById("selectedPhotoLink");
       const caption=document.getElementById("selectedPhotoCaption");
-      const pageUrl=planespottersUrl(a);
-      const reg=clean(a.r,"").toUpperCase().replace(/\s+/g,"");
-      if(!stage||!link||!caption)return;
-      if(!reg||!pageUrl){
-        stage.className="selected-photo-stage empty";
-        stage.innerHTML="";
-        caption.textContent="Keine Registrierung verfügbar – Bildsuche nicht möglich.";
-        link.hidden=true;
+      const planespottersPage=planespottersUrl(a);
+      const registration=clean(a.r,"").toUpperCase().replace(/\s+/g,"");
+      const requestAircraftId=aircraftId(a);
+
+      if(!stage||!link||!caption){
         return;
       }
-      link.href=pageUrl;
-      link.hidden=false;
+
+      if(planespottersPage){
+        link.href=planespottersPage;
+        link.hidden=false;
+      }else{
+        link.hidden=true;
+      }
+
       stage.className="selected-photo-stage loading";
       stage.innerHTML="";
-      caption.textContent=`Suche Bild für ${reg} …`;
-      const photoUrl=await getPlanespottersPhoto(a);
-      if(selectedAircraftId!==aircraftId(a))return;
-      if(photoUrl){
+      caption.textContent=registration
+        ?`Suche frei verfügbares Foto für ${registration} …`
+        :"Suche frei verfügbares Foto nach Flugzeugtyp …";
+
+      const photo=await searchCommonsPhoto(a);
+
+      if(selectedAircraftId!==requestAircraftId){
+        return;
+      }
+
+      if(photo?.imageUrl){
+        const imageLink=photo.pageUrl||planespottersPage||"#";
+        const attribution=[
+          photo.author ? `Foto: ${photo.author}` : "",
+          photo.license ? `Lizenz: ${photo.license}` : "",
+          "Quelle: Wikimedia Commons"
+        ].filter(Boolean).join(" · ");
+
         stage.className="selected-photo-stage";
-        stage.innerHTML=`<a href="${pageUrl}" target="_blank" rel="noopener noreferrer"><img src="${photoUrl}" alt="Planespotters Foto von ${reg}" loading="lazy" referrerpolicy="no-referrer"></a>`;
-        caption.textContent=`Foto basierend auf der Registrierung ${reg}. Klick öffnet Planespotters.`;
+        stage.innerHTML=`
+          <a
+            href="${imageLink}"
+            target="_blank"
+            rel="noopener noreferrer"
+          >
+            <img
+              src="${photo.imageUrl}"
+              alt="Flugzeugfoto ${registration||clean(a.t,"")}"
+              loading="lazy"
+            >
+          </a>
+        `;
+
+        caption.textContent=attribution;
       }else{
         stage.className="selected-photo-stage empty";
         stage.innerHTML="";
-        caption.textContent=`Für ${reg} wurde kein direkt ladbares Bild gefunden.`;
+        caption.textContent=registration
+          ?`Für ${registration} wurde auf Wikimedia Commons kein passendes Foto gefunden.`
+          :"Für diesen Flugzeugtyp wurde auf Wikimedia Commons kein passendes Foto gefunden.";
       }
     }
     function formatFeet(v){return Number.isFinite(v)?`${Math.round(v).toLocaleString("de-DE")} ft`:"—"}function formatKnots(v){return Number.isFinite(v)?`${Math.round(v)} kt`:"—"}
