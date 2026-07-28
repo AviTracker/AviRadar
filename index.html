@@ -68,6 +68,146 @@
     body.ops-view .topbar{left:50%;right:auto;transform:translateX(-50%);width:min(1180px,calc(100% - 36px))}
 
 
+
+    .weather-window{
+      flex:0 0 auto;
+      padding:13px 14px 12px;
+      background:linear-gradient(135deg,rgba(24,48,50,.82),rgba(5,5,5,.98));
+      border-bottom:1px solid var(--line);
+    }
+    .weather-top{
+      display:flex;
+      align-items:flex-start;
+      justify-content:space-between;
+      gap:14px;
+    }
+    .weather-place{
+      color:var(--muted);
+      font-size:8px;
+      letter-spacing:.13em;
+      text-transform:uppercase;
+    }
+    .weather-main{
+      display:flex;
+      align-items:center;
+      gap:11px;
+      margin-top:6px;
+    }
+    .weather-icon{
+      width:34px;
+      height:34px;
+      display:flex;
+      align-items:center;
+      justify-content:center;
+      color:var(--accent);
+      font-size:27px;
+      line-height:1;
+    }
+    .weather-temp{
+      color:#fff;
+      font-size:30px;
+      font-weight:700;
+      letter-spacing:-.06em;
+      line-height:1;
+    }
+    .weather-condition{
+      margin-top:4px;
+      color:#fff;
+      font-size:9px;
+      font-weight:600;
+    }
+    .weather-updated{
+      color:var(--muted);
+      font-size:7px;
+      text-align:right;
+      white-space:nowrap;
+    }
+    .weather-refresh{
+      margin-top:7px;
+      padding:4px 7px;
+      color:var(--accent);
+      background:transparent;
+      border:1px solid rgba(221,255,44,.35);
+      border-radius:6px;
+      cursor:pointer;
+      font-size:7px;
+      letter-spacing:.06em;
+    }
+    .weather-refresh:hover{
+      color:#000;
+      background:var(--accent);
+    }
+    .weather-metrics{
+      display:grid;
+      grid-template-columns:repeat(4,1fr);
+      gap:6px;
+      margin-top:11px;
+    }
+    .weather-metric{
+      min-width:0;
+      padding:7px 6px;
+      background:rgba(0,0,0,.34);
+      border:1px solid var(--line-soft);
+      border-radius:8px;
+    }
+    .weather-metric span{
+      display:block;
+      color:var(--muted);
+      font-size:6px;
+      letter-spacing:.07em;
+      text-transform:uppercase;
+    }
+    .weather-metric b{
+      display:block;
+      margin-top:3px;
+      color:#fff;
+      font-size:9px;
+      white-space:nowrap;
+      overflow:hidden;
+      text-overflow:ellipsis;
+    }
+    .weather-hours{
+      display:grid;
+      grid-template-columns:repeat(6,1fr);
+      gap:5px;
+      margin-top:10px;
+    }
+    .weather-hour{
+      min-width:0;
+      padding:6px 3px;
+      text-align:center;
+      background:#050505;
+      border:1px solid var(--line-soft);
+      border-radius:8px;
+    }
+    .weather-hour time,
+    .weather-hour small{
+      display:block;
+      color:var(--muted);
+      font-size:6px;
+    }
+    .weather-hour i{
+      display:block;
+      margin:3px 0;
+      color:var(--accent);
+      font-style:normal;
+      font-size:14px;
+    }
+    .weather-hour b{
+      display:block;
+      color:#fff;
+      font-size:8px;
+    }
+    .weather-error{
+      padding:10px;
+      color:var(--muted);
+      background:#050505;
+      border:1px solid var(--line-soft);
+      border-radius:8px;
+      font-size:8px;
+      line-height:1.5;
+    }
+
     .departures-panel{
       position:fixed;
       z-index:999;
@@ -86,7 +226,7 @@
       transition:.2s ease;
     }
     .departures-panel:before{
-      content:"MUC_DEPARTURES / DETECTED";
+      content:"ISMANING WEATHER / MUC DEPARTURES";
       display:block;
       padding:8px 15px;
       color:var(--accent);
@@ -347,6 +487,13 @@
 
 
   <aside class="departures-panel" aria-label="Erkannte Abflüge vom Flughafen München">
+
+    <section class="weather-window" aria-label="Aktuelles Wetter in Ismaning">
+      <div id="weatherContent">
+        <div class="weather-error">Live-Wetter wird geladen …</div>
+      </div>
+    </section>
+
     <div class="departures-head">
       <div>
         <strong>MUC Departures Detected</strong>
@@ -381,6 +528,8 @@
     const SESSION_STARTED_AT=Date.now();
     const MAX_TRACK_POINTS=720;
     const AIRCRAFT_API="https://aviradar-api.joschko-hammermann.workers.dev";
+    const WEATHER_REFRESH_MS=10*60*1000;
+    const WEATHER_API="https://api.open-meteo.com/v1/forecast";
     const markers=new Map(),routeCache=new Map(),trackHistory=new Map(),trailLayers=new Map(),departureMotion=new Map(),detectedDepartures=new Map();
     let lastAircraft=[],activeFilter="all",activeCategory="all",airportMode=false,approachMode=false,mapDetail=false,selectedAircraftId=null,trackedIds=new Set(),previousMilitaryIds=new Set(),hasCompletedFirstLiveLoad=false,refreshTimer=null;
 
@@ -792,6 +941,163 @@
     function checkMilitaryEntries(){const current=new Set(lastAircraft.filter(isMilitary).map(aircraftId));if(hasCompletedFirstLiveLoad){const fresh=[...current].filter(id=>!previousMilitaryIds.has(id));if(fresh.length){const a=lastAircraft.find(x=>aircraftId(x)===fresh[0]);showAlert(`${clean(a?.flight,clean(a?.r,"MILITARY AIRCRAFT"))} entered the monitored radius.`)}}previousMilitaryIds=current}
     function showAlert(text){document.getElementById("alertText").textContent=text;const b=document.getElementById("alertBanner");b.classList.add("visible");setTimeout(()=>b.classList.remove("visible"),6500)}
 
+
+    function weatherDescription(code){
+      const descriptions={
+        0:"Klar",
+        1:"Überwiegend klar",
+        2:"Teilweise bewölkt",
+        3:"Bewölkt",
+        45:"Nebel",
+        48:"Reifnebel",
+        51:"Leichter Nieselregen",
+        53:"Nieselregen",
+        55:"Starker Nieselregen",
+        56:"Leichter gefrierender Nieselregen",
+        57:"Gefrierender Nieselregen",
+        61:"Leichter Regen",
+        63:"Regen",
+        65:"Starker Regen",
+        66:"Leichter gefrierender Regen",
+        67:"Gefrierender Regen",
+        71:"Leichter Schneefall",
+        73:"Schneefall",
+        75:"Starker Schneefall",
+        77:"Schneegriesel",
+        80:"Leichte Regenschauer",
+        81:"Regenschauer",
+        82:"Starke Regenschauer",
+        85:"Leichte Schneeschauer",
+        86:"Starke Schneeschauer",
+        95:"Gewitter",
+        96:"Gewitter mit Hagel",
+        99:"Starkes Gewitter mit Hagel"
+      };
+      return descriptions[Number(code)]||"Wetterlage unbekannt";
+    }
+
+    function weatherSymbol(code,isDay=1){
+      code=Number(code);
+      if(code===0)return isDay?"☀":"☾";
+      if(code===1)return isDay?"🌤":"☾";
+      if(code===2)return"⛅";
+      if(code===3)return"☁";
+      if([45,48].includes(code))return"≋";
+      if([51,53,55,56,57].includes(code))return"🌦";
+      if([61,63,65,66,67,80,81,82].includes(code))return"🌧";
+      if([71,73,75,77,85,86].includes(code))return"❄";
+      if([95,96,99].includes(code))return"ϟ";
+      return"◌";
+    }
+
+    function windDirectionLabel(degrees){
+      if(!Number.isFinite(Number(degrees)))return"—";
+      const directions=["N","NE","E","SE","S","SW","W","NW"];
+      return directions[Math.round(Number(degrees)/45)%8];
+    }
+
+    function renderWeather(data){
+      const host=document.getElementById("weatherContent");
+      const current=data?.current;
+      const hourly=data?.hourly;
+      if(!host||!current||!hourly)throw new Error("Unvollständige Wetterdaten");
+
+      const currentTime=new Date(current.time);
+      const startIndex=Math.max(
+        0,
+        hourly.time.findIndex(time=>new Date(time)>=currentTime)
+      );
+
+      const nextHours=hourly.time
+        .slice(startIndex,startIndex+6)
+        .map((time,index)=>({
+          time:new Date(time),
+          temperature:hourly.temperature_2m[startIndex+index],
+          precipitation:hourly.precipitation_probability[startIndex+index],
+          code:hourly.weather_code[startIndex+index]
+        }));
+
+      host.innerHTML=`
+        <div class="weather-top">
+          <div>
+            <div class="weather-place">Ismaning · Live Weather</div>
+            <div class="weather-main">
+              <span class="weather-icon">${weatherSymbol(current.weather_code,current.is_day)}</span>
+              <div>
+                <div class="weather-temp">${Math.round(current.temperature_2m)}°</div>
+                <div class="weather-condition">${weatherDescription(current.weather_code)}</div>
+              </div>
+            </div>
+          </div>
+          <div class="weather-updated">
+            UPDATED<br>${new Date().toLocaleTimeString("de-DE",{hour:"2-digit",minute:"2-digit"})}
+            <br><button id="weatherRefreshBtn" class="weather-refresh" type="button">REFRESH</button>
+          </div>
+        </div>
+
+        <div class="weather-metrics">
+          <div class="weather-metric"><span>Gefühlt</span><b>${Math.round(current.apparent_temperature)} °C</b></div>
+          <div class="weather-metric"><span>Wind</span><b>${Math.round(current.wind_speed_10m)} km/h ${windDirectionLabel(current.wind_direction_10m)}</b></div>
+          <div class="weather-metric"><span>Böen</span><b>${Math.round(current.wind_gusts_10m)} km/h</b></div>
+          <div class="weather-metric"><span>Niederschlag</span><b>${Number(current.precipitation).toFixed(1)} mm</b></div>
+        </div>
+
+        <div class="weather-hours">
+          ${nextHours.map(hour=>`
+            <div class="weather-hour">
+              <time>${hour.time.toLocaleTimeString("de-DE",{hour:"2-digit",minute:"2-digit"})}</time>
+              <i>${weatherSymbol(hour.code,1)}</i>
+              <b>${Math.round(hour.temperature)}°</b>
+              <small>${Math.round(hour.precipitation||0)}% rain</small>
+            </div>
+          `).join("")}
+        </div>
+      `;
+
+      document.getElementById("weatherRefreshBtn")?.addEventListener("click",loadWeather);
+    }
+
+    async function loadWeather(){
+      const host=document.getElementById("weatherContent");
+      try{
+        const params=new URLSearchParams({
+          latitude:String(CENTER.lat),
+          longitude:String(CENTER.lon),
+          current:[
+            "temperature_2m",
+            "apparent_temperature",
+            "weather_code",
+            "is_day",
+            "wind_speed_10m",
+            "wind_direction_10m",
+            "wind_gusts_10m",
+            "precipitation"
+          ].join(","),
+          hourly:[
+            "temperature_2m",
+            "precipitation_probability",
+            "weather_code"
+          ].join(","),
+          forecast_days:"1",
+          timezone:"Europe/Berlin"
+        });
+
+        const response=await fetch(`${WEATHER_API}?${params.toString()}`,{cache:"no-store"});
+        if(!response.ok)throw new Error(`Weather HTTP ${response.status}`);
+        renderWeather(await response.json());
+      }catch(error){
+        console.error("Weather API error:",error);
+        if(host){
+          host.innerHTML=`
+            <div class="weather-error">
+              Wetterdaten konnten nicht geladen werden.<br>
+              <button id="weatherRefreshBtn" class="weather-refresh" type="button">RETRY</button>
+            </div>`;
+          document.getElementById("weatherRefreshBtn")?.addEventListener("click",loadWeather);
+        }
+      }
+    }
+
     async function loadAircraft(){const radius=Number(document.getElementById("radiusSelect").value);setStatus("Aktualisiere …");try{const r=await fetch(`${AIRCRAFT_API}/?radius=${radius}`,{cache:"no-store"});if(!r.ok){const err=new Error(`HTTP ${r.status}`);err.retryAfter=Number(r.headers.get("Retry-After"))||60;throw err}const data=await r.json();if(!Array.isArray(data.ac))throw new Error("Ungültige API-Antwort");renderAircraft(data.ac);hasCompletedFirstLiveLoad=true;setStatus(`Live · ${new Date().toLocaleTimeString("de-DE",{hour:"2-digit",minute:"2-digit",second:"2-digit"})}`);scheduleRefresh(REFRESH_MS)}catch(e){console.error(e);if(!lastAircraft.length)renderAircraft([]);if(String(e.message).includes("429")){const wait=(e.retryAfter||60)*1000;setStatus(`Rate Limit · neuer Versuch in ${Math.round(wait/1000)} s`,true);scheduleRefresh(wait)}else{setStatus(`Verbindungsfehler · ${e.message||"API"}`,true);scheduleRefresh(REFRESH_MS)}}}
     function scheduleRefresh(ms){clearTimeout(refreshTimer);refreshTimer=setTimeout(loadAircraft,ms)}
 
@@ -810,6 +1116,8 @@
     document.getElementById("openExchangeBtn").addEventListener("click",()=>{const a=lastAircraft.find(x=>aircraftId(x)===selectedAircraftId),hex=(a?.hex||"").replace(/^~/,"");if(hex)window.open(`https://globe.adsbexchange.com/?icao=${encodeURIComponent(hex)}`,"_blank","noopener")});
 
     loadAircraft();
+    loadWeather();
+    setInterval(loadWeather,WEATHER_REFRESH_MS);
   </script>
 </body>
 </html>
