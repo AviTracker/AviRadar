@@ -577,14 +577,13 @@
     </div>
 
     <div class="departures-foot">
-      Erkennung: Maschine wurde nahe MUC gesehen, steigt und entfernt sich
-      anschließend vom Flughafen. Ziel und Airline können fehlen, wenn zum
-      Callsign keine Route verfügbar ist.
+      Zentrale Worker-Erkennung mit D1-Verlauf. Ziel und Airline können fehlen,
+      wenn zum Callsign keine Route verfügbar ist.
     </div>
   </aside>
 
   <div id="alertBanner" class="alert-banner"><strong>MIL ENTRY //</strong> <span id="alertText"></span></div>
-  <div class="notice">Öffentlich empfangene ADS-B-/MLAT-Daten. M.A.R.V.I.N. zeichnet Positionen ab dem ersten Live-Abruf dieser Sitzung auf. Beim Anklicken eines Flugzeugs wird dessen bisheriger Session Track angezeigt. Nicht zur Navigation oder Einsatzführung.</div>
+  <div class="notice">Öffentlich empfangene ADS-B-/MLAT-Daten. M.A.R.V.I.N. kombiniert Live-Daten mit zentral gespeicherten D1-Flugspuren. Beim Anklicken eines Flugzeugs wird dessen verfügbarer Track angezeigt. Nicht zur Navigation oder Einsatzführung.</div>
 
   <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" crossorigin=""></script>
   <script>
@@ -1057,23 +1056,51 @@
       });
     }
 
-    function processDetectedDepartures(aircraftList){
-      aircraftList.forEach(updateDepartureMotion);
-
-      const departureCutoff=Date.now()-3*60*60*1000;
-      for(const [id,record] of detectedDepartures){
-        if(record.detectedAt<departureCutoff)detectedDepartures.delete(id);
-      }
-
-      const motionCutoff=Date.now()-30*60*1000;
-      for(const [id,state] of departureMotion){
-        if(state.lastSeen<motionCutoff)departureMotion.delete(id);
-      }
-
+    function processDetectedDepartures(){
       renderDeparturesTable();
     }
 
+    async function loadCentralDepartures(){
+      try{
+        const response=await fetch(`${AIRCRAFT_API}/departures?hours=3`,{cache:"no-store"});
+        if(!response.ok)throw new Error(`Departures HTTP ${response.status}`);
+        const data=await response.json();
+        detectedDepartures.clear();
+        for(const d of data.departures||[]){
+          detectedDepartures.set(d.icao,{
+            id:d.icao,
+            detectedAt:Number(d.detected_at)*1000,
+            lastSeen:Number(d.last_seen)*1000,
+            distance:Number(d.distance_nm)||0,
+            altitude:Number(d.altitude_ft),
+            vertical:Number(d.vertical_rate_fpm),
+            aircraft:{
+              hex:d.icao,
+              flight:d.callsign,
+              r:d.registration,
+              t:d.aircraft_type,
+              ownOp:d.operator,
+              lat:null,
+              lon:null
+            },
+            route:{
+              destination:d.destination_code||d.destination_name?{
+                iata_code:d.destination_code,
+                municipality:d.destination_name
+              }:null,
+              airline:d.airline_name?{name:d.airline_name}:null
+            },
+            status:d.status
+          });
+        }
+        renderDeparturesTable();
+      }catch(error){
+        console.warn("Central departures failed",error);
+      }
+    }
+
     function departureStatus(record){
+      if(record.status)return record.status;
       if(Number.isFinite(record.vertical)&&record.vertical>256)return"CLIMBING";
       if(Number.isFinite(record.altitude)&&record.altitude>=10000)return"DEPARTED";
       return"OUTBOUND";
@@ -1156,14 +1183,36 @@
           const record=detectedDepartures.get(id);
           const a=lastAircraft.find(item=>aircraftId(item)===id)||record?.aircraft;
           if(!a)return;
-          selectAircraft(a);
-          map.setView([Number(a.lat),Number(a.lon)],Math.max(map.getZoom(),11));
-          markers.get(id)?.openPopup();
+          const live=lastAircraft.find(item=>aircraftId(item)===id);
+          if(live){
+            selectAircraft(live);
+            map.setView([Number(live.lat),Number(live.lon)],Math.max(map.getZoom(),11));
+            markers.get(id)?.openPopup();
+          }
         });
       });
     }
 
-    async function getRoute(a){const cs=callsign(a);if(!cs)return null;if(routeCache.has(cs))return routeCache.get(cs);const p=(async()=>{try{const r=await fetch(`https://api.adsbdb.com/v0/callsign/${encodeURIComponent(cs)}`,{cache:"force-cache"});if(!r.ok)throw new Error(`Route HTTP ${r.status}`);const j=await r.json();return j?.response?.flightroute||null}catch(e){console.warn("Route lookup failed",cs,e);return null}})();routeCache.set(cs,p);const result=await p;routeCache.set(cs,result);return result}
+    async function getRoute(a){
+      const cs=callsign(a);
+      if(!cs)return null;
+      if(routeCache.has(cs))return routeCache.get(cs);
+      const pending=(async()=>{
+        try{
+          const response=await fetch(`${AIRCRAFT_API}/route?callsign=${encodeURIComponent(cs)}`,{cache:"no-store"});
+          if(!response.ok)throw new Error(`Route HTTP ${response.status}`);
+          const data=await response.json();
+          return data.route||null;
+        }catch(error){
+          console.warn("Route lookup failed",cs,error);
+          return null;
+        }
+      })();
+      routeCache.set(cs,pending);
+      const result=await pending;
+      routeCache.set(cs,result);
+      return result;
+    }
 
     function badgesHtml(a,nearestId){const m=militaryStatus(a),muc=mucStatus(a),id=aircraftId(a);let b="";if(m!=="no")b+=`<span class="badge mil">${m==="confirmed"?"MIL":"MIL?"}</span>`;if(muc!=="—")b+=`<span class="badge muc">${muc.replace(" MUC","")}</span>`;if(id===nearestId)b+='<span class="badge near">NEAREST</span>';if(isEmergency(a))b+=`<span class="badge emg">${clean(a.squawk,"EMERGENCY")}</span>`;return b}
     function popupHtml(a){const alt=altitudeFt(a),mil=militaryStatus(a),hex=(a.hex||"").replace(/^~/,""),cached=routeCache.get(callsign(a)),resolved=cached&&typeof cached.then!=="function"?cached:null,d=distanceNm(CENTER,{lat:Number(a.lat),lon:Number(a.lon)}),planespotters=planespottersUrl(a);return `<div class="popup-title ${mil!=="no"?"military":""}">${clean(a.flight,clean(a.r,a.hex?.toUpperCase()))}</div><div class="popup-grid"><span>Typ</span><b>${clean(a.t)}</b><span>Registrierung</span><b>${clean(a.r)}</b><span>Höhe</span><b>${alt===0?"GROUND":formatFeet(alt)}</b><span>Speed</span><b>${formatKnots(speedKt(a))}</b><span>Vertical</span><b>${formatVertical(a)}</b><span>Track</span><b>${Math.round(heading(a))}°</b><span>Ismaning</span><b>${d.toFixed(1)} NM</b><span>MUC</span><b>${mucStatus(a)}</b><span>Kategorie</span><b>${categoryLabel(category(a))}</b><span>Squawk</span><b>${clean(a.squawk)}</b></div><div class="popup-route"><b>Strecke</b><br>${resolved?routeText(resolved):(callsign(a)?"Route wird geladen …":"Kein Callsign verfügbar")}</div>${planespotters?`<a class="popup-link" href="${planespotters}" target="_blank" rel="noopener noreferrer">Fotos auf Planespotters ↗</a><br>`:""}${hex?`<a class="popup-link" href="https://globe.adsbexchange.com/?icao=${encodeURIComponent(hex)}" target="_blank" rel="noopener noreferrer">In ADS-B Exchange öffnen ↗</a>`:""}`}
@@ -1203,7 +1252,7 @@
       trackHistory.set(id,h);
     }
 
-    function renderAircraft(ac){lastAircraft=ac.filter(a=>Number.isFinite(Number(a.lat))&&Number.isFinite(Number(a.lon)));lastAircraft.forEach(addTrackPoint);processDetectedDepartures(lastAircraft);checkMilitaryEntries();applyFilter();trackedIds.forEach(drawTrail);if(selectedAircraftId)updateSelectedPanel()}
+    function renderAircraft(ac){lastAircraft=ac.filter(a=>Number.isFinite(Number(a.lat))&&Number.isFinite(Number(a.lon)));lastAircraft.forEach(addTrackPoint);checkMilitaryEntries();applyFilter();trackedIds.forEach(drawTrail);if(selectedAircraftId)updateSelectedPanel()}
     function clearTrail(id){const layer=trailLayers.get(id);if(layer){layer.forEach(l=>map.removeLayer(l));trailLayers.delete(id)}}
     function drawTrail(id){
       clearTrail(id);
@@ -1285,7 +1334,32 @@
 
       trailLayers.set(id,[line,startMarker,label,...pointLayers]);
     }
-    function toggleTrack(id){if(trackedIds.has(id)){trackedIds.delete(id);clearTrail(id)}else{trackedIds.add(id);drawTrail(id)}updateSelectedPanel()}
+    async function loadPersistentTrack(id){
+      const mode=document.getElementById("trailLengthSelect").value;
+      const minutes=mode==="session"?720:Number(mode);
+      try{
+        const response=await fetch(`${AIRCRAFT_API}/track?icao=${encodeURIComponent(id.replace(/^~/,""))}&minutes=${minutes}`,{cache:"no-store"});
+        if(!response.ok)throw new Error(`Track HTTP ${response.status}`);
+        const data=await response.json();
+        const remote=(data.points||[]).map(p=>({lat:Number(p.lat),lon:Number(p.lon),t:Number(p.ts)*1000})).filter(p=>Number.isFinite(p.lat)&&Number.isFinite(p.lon));
+        const local=trackHistory.get(id)||[];
+        const merged=[...remote,...local].sort((a,b)=>a.t-b.t).filter((p,i,arr)=>i===0||p.t!==arr[i-1].t||p.lat!==arr[i-1].lat||p.lon!==arr[i-1].lon);
+        trackHistory.set(id,merged.slice(-MAX_TRACK_POINTS));
+      }catch(error){
+        console.warn("Persistent track failed",id,error);
+      }
+    }
+    async function toggleTrack(id){
+      if(trackedIds.has(id)){
+        trackedIds.delete(id);
+        clearTrail(id);
+      }else{
+        trackedIds.add(id);
+        await loadPersistentTrack(id);
+        drawTrail(id);
+      }
+      updateSelectedPanel();
+    }
 
     function applyFilter(){const shown=filteredAircraft(),nearest=nearestIdFor(shown),nearestId=nearest?.id||null,active=new Set();shown.forEach(a=>{const id=aircraftId(a),pos=[Number(a.lat),Number(a.lon)];active.add(id);if(markers.has(id)){markers.get(id).setLatLng(pos).setIcon(markerIcon(a,nearestId)).setPopupContent(popupHtml(a))}else{const m=L.marker(pos,{icon:markerIcon(a,nearestId)}).addTo(map).bindPopup(popupHtml(a));m.on("click",()=>selectAircraft(a));m.on("popupopen",async()=>{selectAircraft(a);await getRoute(a);m.setPopupContent(popupHtml(a))});markers.set(id,m)}});for(const[id,m]of markers)if(!active.has(id)){map.removeLayer(m);markers.delete(id)}updateSidebar(shown,nearest);trackedIds.forEach(drawTrail)}
     async function primeRoutes(list){const q=list.filter(a=>callsign(a)&&!routeCache.has(callsign(a))).slice(0,8);for(let i=0;i<q.length;i+=4){const batch=q.slice(i,i+4);await Promise.all(batch.map(getRoute));updateSidebar(filteredAircraft(),nearestIdFor(filteredAircraft()));batch.forEach(a=>markers.get(aircraftId(a))?.setPopupContent(popupHtml(a)))}}
@@ -1468,7 +1542,7 @@
       }
     }
 
-    async function loadAircraft(){setStatus("Aktualisiere …");try{const r=await fetch(`${AIRCRAFT_API}/?radius=${RADAR_RADIUS_NM}`,{cache:"no-store"});if(!r.ok){const err=new Error(`HTTP ${r.status}`);err.retryAfter=Number(r.headers.get("Retry-After"))||60;throw err}const data=await r.json();if(!Array.isArray(data.ac))throw new Error("Ungültige API-Antwort");renderAircraft(data.ac);hasCompletedFirstLiveLoad=true;setStatus(`Live · ${new Date().toLocaleTimeString("de-DE",{hour:"2-digit",minute:"2-digit",second:"2-digit"})}`);scheduleRefresh(REFRESH_MS)}catch(e){console.error(e);if(!lastAircraft.length)renderAircraft([]);if(String(e.message).includes("429")){const wait=(e.retryAfter||60)*1000;setStatus(`Rate Limit · neuer Versuch in ${Math.round(wait/1000)} s`,true);scheduleRefresh(wait)}else{setStatus(`Verbindungsfehler · ${e.message||"API"}`,true);scheduleRefresh(REFRESH_MS)}}}
+    async function loadAircraft(){setStatus("Aktualisiere …");try{const r=await fetch(`${AIRCRAFT_API}/aircraft`,{cache:"no-store"});if(!r.ok){const err=new Error(`HTTP ${r.status}`);err.retryAfter=Number(r.headers.get("Retry-After"))||60;throw err}const data=await r.json();if(!Array.isArray(data.ac))throw new Error("Ungültige API-Antwort");renderAircraft(data.ac);hasCompletedFirstLiveLoad=true;setStatus(`Live · ${new Date().toLocaleTimeString("de-DE",{hour:"2-digit",minute:"2-digit",second:"2-digit"})}`);scheduleRefresh(REFRESH_MS)}catch(e){console.error(e);if(!lastAircraft.length)renderAircraft([]);if(String(e.message).includes("429")){const wait=(e.retryAfter||60)*1000;setStatus(`Rate Limit · neuer Versuch in ${Math.round(wait/1000)} s`,true);scheduleRefresh(wait)}else{setStatus(`Verbindungsfehler · ${e.message||"API"}`,true);scheduleRefresh(REFRESH_MS)}}}
     function scheduleRefresh(ms){clearTimeout(refreshTimer);refreshTimer=setTimeout(loadAircraft,ms)}
 
     document.getElementById("refreshBtn").addEventListener("click",loadAircraft);
@@ -1477,7 +1551,7 @@
     document.getElementById("categorySelect").addEventListener("change",e=>{activeCategory=e.target.value;applyFilter()});
     document.getElementById("airportModeBtn").addEventListener("click",e=>{airportMode=!airportMode;e.currentTarget.classList.toggle("secondary-active",airportMode);applyFilter()});
     document.getElementById("approachBtn").addEventListener("click",e=>{approachMode=!approachMode;e.currentTarget.classList.toggle("secondary-active",approachMode);applyFilter()});
-    document.getElementById("trailLengthSelect").addEventListener("change",()=>trackedIds.forEach(drawTrail));
+    document.getElementById("trailLengthSelect").addEventListener("change",async()=>{for(const id of trackedIds){await loadPersistentTrack(id);drawTrail(id)}});
     document.getElementById("mapModeBtn").addEventListener("click",e=>{mapDetail=!mapDetail;document.body.classList.toggle("map-detail",mapDetail);document.body.classList.toggle("map-ops",!mapDetail);if(mapDetail){map.removeLayer(osmLayer);cartoLayer.addTo(map);e.currentTarget.textContent="MAP OPS"}else{map.removeLayer(cartoLayer);osmLayer.addTo(map);e.currentTarget.textContent="MAP DETAIL"}});
     document.getElementById("opsViewBtn").addEventListener("click",e=>{document.body.classList.toggle("ops-view");e.currentTarget.classList.toggle("secondary-active");setTimeout(()=>map.invalidateSize(),250)});
     document.getElementById("trackToggleBtn").addEventListener("click",()=>{if(selectedAircraftId)toggleTrack(selectedAircraftId)});
@@ -1485,7 +1559,9 @@
     document.getElementById("openExchangeBtn").addEventListener("click",()=>{const a=lastAircraft.find(x=>aircraftId(x)===selectedAircraftId),hex=(a?.hex||"").replace(/^~/,"");if(hex)window.open(`https://globe.adsbexchange.com/?icao=${encodeURIComponent(hex)}`,"_blank","noopener")});
 
     loadAircraft();
+    loadCentralDepartures();
     loadWeather();
+    setInterval(loadCentralDepartures,60000);
     setInterval(loadWeather,WEATHER_REFRESH_MS);
   </script>
 </body>
