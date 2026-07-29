@@ -505,7 +505,7 @@
       <button id="approachBtn" class="control optional">&lt;10K FT</button>
       <select id="categorySelect" class="control optional" title="Kategorie"><option value="all">ALL TYPES</option><option value="airliner">AIRLINER</option><option value="business">BUSINESS</option><option value="helicopter">HELICOPTER</option><option value="ga">GENERAL AVIATION</option><option value="ground">GROUND / OTHER</option></select>
       <select id="trailLengthSelect" class="control optional" title="Spurlänge"><option value="session" selected>TRACK SESSION</option><option value="5">TRACK 5 MIN</option><option value="15">TRACK 15 MIN</option><option value="30">TRACK 30 MIN</option></select>
-      <select id="radiusSelect" class="control"><option value="25">25 NM</option><option value="50" selected>50 NM</option><option value="75">75 NM</option><option value="100">100 NM</option></select>
+      <span class="control" title="Fester Erfassungsradius" style="display:inline-flex;align-items:center;cursor:default">200 NM</span>
       <button id="mapModeBtn" class="control optional">MAP DETAIL</button>
       <button id="opsViewBtn" class="control">OPS VIEW</button>
       <button id="centerBtn" class="control optional">ISMANING</button>
@@ -591,6 +591,7 @@
     const CENTER={lat:48.226,lon:11.675};
     const MUC={lat:48.3538,lon:11.7861};
     const REFRESH_MS=30000;
+    const RADAR_RADIUS_NM=200;
     const SESSION_STARTED_AT=Date.now();
     const MAX_TRACK_POINTS=720;
     const AIRCRAFT_API="https://aviradar-api.joschko-hammermann.workers.dev";
@@ -606,7 +607,7 @@
 
     L.marker([CENTER.lat,CENTER.lon],{icon:L.divIcon({className:"",html:'<div class="center-marker-wrap"><div class="center-marker"></div><div class="center-brand">ISMANING</div></div>',iconSize:[92,30],iconAnchor:[14,15]})}).addTo(map).bindPopup('<div class="popup-title">ISMANING</div><div>M.A.R.V.I.N. Radarzentrum</div>');
     L.circleMarker([MUC.lat,MUC.lon],{radius:6,color:"#fff",weight:1,fillColor:"#183032",fillOpacity:.9}).addTo(map).bindTooltip("MUC",{permanent:true,direction:"right",className:"trail-label"});
-    const rangeCircle=L.circle([CENTER.lat,CENTER.lon],{radius:nmToMeters(50),color:"#DDFF2C",weight:1.5,opacity:.75,fillColor:"#DDFF2C",fillOpacity:.025,dashArray:"3 8"}).addTo(map);
+    const rangeCircle=L.circle([CENTER.lat,CENTER.lon],{radius:nmToMeters(RADAR_RADIUS_NM),color:"#DDFF2C",weight:1.5,opacity:.75,fillColor:"#DDFF2C",fillOpacity:.025,dashArray:"3 8"}).addTo(map);
 
     function typeCode(a){return String(a.t||"").toUpperCase()}
     function iconSpec(a){
@@ -1467,7 +1468,7 @@
       }
     }
 
-    async function loadAircraft(){const radius=Number(document.getElementById("radiusSelect").value);setStatus("Aktualisiere …");try{const r=await fetch(`${AIRCRAFT_API}/?radius=${radius}`,{cache:"no-store"});if(!r.ok){const err=new Error(`HTTP ${r.status}`);err.retryAfter=Number(r.headers.get("Retry-After"))||60;throw err}const data=await r.json();if(!Array.isArray(data.ac))throw new Error("Ungültige API-Antwort");renderAircraft(data.ac);hasCompletedFirstLiveLoad=true;setStatus(`Live · ${new Date().toLocaleTimeString("de-DE",{hour:"2-digit",minute:"2-digit",second:"2-digit"})}`);scheduleRefresh(REFRESH_MS)}catch(e){console.error(e);if(!lastAircraft.length)renderAircraft([]);if(String(e.message).includes("429")){const wait=(e.retryAfter||60)*1000;setStatus(`Rate Limit · neuer Versuch in ${Math.round(wait/1000)} s`,true);scheduleRefresh(wait)}else{setStatus(`Verbindungsfehler · ${e.message||"API"}`,true);scheduleRefresh(REFRESH_MS)}}}
+    async function loadAircraft(){setStatus("Aktualisiere …");try{const r=await fetch(`${AIRCRAFT_API}/?radius=${RADAR_RADIUS_NM}`,{cache:"no-store"});if(!r.ok){const err=new Error(`HTTP ${r.status}`);err.retryAfter=Number(r.headers.get("Retry-After"))||60;throw err}const data=await r.json();if(!Array.isArray(data.ac))throw new Error("Ungültige API-Antwort");renderAircraft(data.ac);hasCompletedFirstLiveLoad=true;setStatus(`Live · ${new Date().toLocaleTimeString("de-DE",{hour:"2-digit",minute:"2-digit",second:"2-digit"})}`);scheduleRefresh(REFRESH_MS)}catch(e){console.error(e);if(!lastAircraft.length)renderAircraft([]);if(String(e.message).includes("429")){const wait=(e.retryAfter||60)*1000;setStatus(`Rate Limit · neuer Versuch in ${Math.round(wait/1000)} s`,true);scheduleRefresh(wait)}else{setStatus(`Verbindungsfehler · ${e.message||"API"}`,true);scheduleRefresh(REFRESH_MS)}}}
     function scheduleRefresh(ms){clearTimeout(refreshTimer);refreshTimer=setTimeout(loadAircraft,ms)}
 
     document.getElementById("refreshBtn").addEventListener("click",loadAircraft);
@@ -1477,7 +1478,6 @@
     document.getElementById("airportModeBtn").addEventListener("click",e=>{airportMode=!airportMode;e.currentTarget.classList.toggle("secondary-active",airportMode);applyFilter()});
     document.getElementById("approachBtn").addEventListener("click",e=>{approachMode=!approachMode;e.currentTarget.classList.toggle("secondary-active",approachMode);applyFilter()});
     document.getElementById("trailLengthSelect").addEventListener("change",()=>trackedIds.forEach(drawTrail));
-    document.getElementById("radiusSelect").addEventListener("change",e=>{rangeCircle.setRadius(nmToMeters(Number(e.target.value)));loadAircraft()});
     document.getElementById("mapModeBtn").addEventListener("click",e=>{mapDetail=!mapDetail;document.body.classList.toggle("map-detail",mapDetail);document.body.classList.toggle("map-ops",!mapDetail);if(mapDetail){map.removeLayer(osmLayer);cartoLayer.addTo(map);e.currentTarget.textContent="MAP OPS"}else{map.removeLayer(cartoLayer);osmLayer.addTo(map);e.currentTarget.textContent="MAP DETAIL"}});
     document.getElementById("opsViewBtn").addEventListener("click",e=>{document.body.classList.toggle("ops-view");e.currentTarget.classList.toggle("secondary-active");setTimeout(()=>map.invalidateSize(),250)});
     document.getElementById("trackToggleBtn").addEventListener("click",()=>{if(selectedAircraftId)toggleTrack(selectedAircraftId)});
