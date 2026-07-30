@@ -470,7 +470,7 @@
 
     .selected-country-cell{grid-column:1/-1}
     .country-origin{display:inline-flex;align-items:center;gap:6px;white-space:nowrap}
-    .country-flag{font-family:"Segoe UI Emoji","Apple Color Emoji",sans-serif;font-size:14px;line-height:1}
+    .country-flag{display:inline-block;width:18px;height:12px;object-fit:cover;border:1px solid rgba(255,255,255,.28);border-radius:2px;vertical-align:middle}
     .country-name{font-size:9px;letter-spacing:.02em}
     .airport-marker-wrap{
       display:flex;
@@ -555,10 +555,7 @@
       <button id="airportModeBtn" class="control optional">MUC MODE</button>
       <button id="approachBtn" class="control optional">&lt;10K FT</button>
       <select id="categorySelect" class="control optional" title="Kategorie"><option value="all">ALL TYPES</option><option value="airliner">AIRLINER</option><option value="business">BUSINESS</option><option value="helicopter">HELICOPTER</option><option value="ga">GENERAL AVIATION</option><option value="ground">GROUND / OTHER</option></select>
-      <select id="trailLengthSelect" class="control optional" title="Spurlänge"><option value="session" selected>TRACK SESSION</option><option value="5">TRACK 5 MIN</option><option value="15">TRACK 15 MIN</option><option value="30">TRACK 30 MIN</option></select>
-      <span class="control" title="Fester Erfassungsradius" style="display:inline-flex;align-items:center;cursor:default">200 NM</span>
       <button id="mapModeBtn" class="control optional">MAP DETAIL</button><button id="airportLayerBtn" class="control optional secondary-active">AIRPORTS ON</button>
-      <button id="opsViewBtn" class="control">OPS VIEW</button>
       <button id="centerBtn" class="control optional">ISMANING</button>
       <button id="refreshBtn" class="control primary">REFRESH</button>
     </div>
@@ -580,12 +577,12 @@
       <div class="selected-head"><div><strong id="selectedTitle">—</strong><small id="selectedSubtitle">—</small></div><span id="selectedBadges"></span></div>
       <div class="selected-grid">
         <div class="selected-cell"><span>Höhe</span><b id="selectedAltitude">—</b></div>
-        <div class="selected-cell"><span>Speed</span><b id="selectedSpeed">—</b></div>
-        <div class="selected-cell"><span>Vertical</span><b id="selectedVertical">—</b></div>
+        <div class="selected-cell"><span>Geschwindigkeit</span><b id="selectedSpeed">—</b></div>
+        <div class="selected-cell"><span>Steigen / Sinken</span><b id="selectedVertical">—</b></div>
         <div class="selected-cell"><span>Ismaning</span><b id="selectedDistance">—</b></div>
         <div class="selected-cell"><span>MUC Status</span><b id="selectedMuc">—</b></div>
         <div class="selected-cell"><span>Category</span><b id="selectedCategory">—</b></div>
-        <div class="selected-cell selected-country-cell"><span>Registration origin</span><b id="selectedCountry">—</b></div>
+        
       </div>
       <div class="selected-photo">
         <div class="selected-photo-head">
@@ -641,6 +638,7 @@
   <script>
     const CENTER={lat:48.226,lon:11.675};
     const MUC={lat:48.3538,lon:11.7861};
+    const CONFIGURED_RADIUS_NM=200;
     const REFRESH_MS=30000;
     const RADAR_RADIUS_NM=200;
     const SESSION_STARTED_AT=Date.now();
@@ -1009,11 +1007,29 @@
 
     function countryHtml(a){
       const country=registrationCountry(a);
-      return `<span class="country-origin"><span class="country-flag">${country.flag}</span><span class="country-name">${country.name}</span></span>`;
+      const flag=country.code
+        ?`<img class="country-flag" src="https://flagcdn.com/24x18/${country.code.toLowerCase()}.png" alt="${country.name}" loading="lazy">`
+        :`<span class="country-flag" style="background:#183032"></span>`;
+      return `<span class="country-origin">${flag}<span class="country-name">${country.name}</span></span>`;
     }
 
-    function formatFeet(v){return Number.isFinite(v)?`${Math.round(v).toLocaleString("de-DE")} ft`:"—"}function formatKnots(v){return Number.isFinite(v)?`${Math.round(v)} kt`:"—"}
-    function formatVertical(a){const v=verticalRate(a);if(!Number.isFinite(v)||Math.abs(v)<64)return "LEVEL";return `${v>0?"↑":"↓"} ${Math.abs(Math.round(v)).toLocaleString("de-DE")} fpm`}
+    function formatAltitudeMetric(v){
+      if(!Number.isFinite(v))return "—";
+      return `${Math.round(v*0.3048).toLocaleString("de-DE")} m`;
+    }
+    function formatSpeedMetric(v){
+      if(!Number.isFinite(v))return "—";
+      return `${Math.round(v*1.852).toLocaleString("de-DE")} km/h`;
+    }
+    function formatVerticalMetric(a){
+      const v=verticalRate(a);
+      if(!Number.isFinite(v)||Math.abs(v)<64)return "LEVEL";
+      const ms=Math.abs(v*0.00508);
+      return `${v>0?"↑":"↓"} ${ms.toLocaleString("de-DE",{minimumFractionDigits:1,maximumFractionDigits:1})} m/s`;
+    }
+    function formatFeet(v){return formatAltitudeMetric(v)}
+    function formatKnots(v){return formatSpeedMetric(v)}
+    function formatVertical(a){return formatVerticalMetric(a)}
     function isEmergency(a){return ["7500","7600","7700"].includes(String(a.squawk||""))||a.emergency&&a.emergency!=="none"}
     function militaryStatus(a){if((Number(a.dbFlags)||0)&1)return"confirmed";const s=[a.ownOp,a.desc,a.flight,a.r].filter(Boolean).join(" ").toUpperCase();const p=["AIR FORCE","LUFTWAFFE","ARMY","NAVY","MILITARY","BUNDESWEHR","HEER","MARINE","GAF","BAF","RCH","RRR","CNV","IAM","FAF","AME","NATO"];return p.some(x=>s.includes(x))?"likely":"no"}
     function isMilitary(a){return militaryStatus(a)!=="no"}
@@ -1357,11 +1373,9 @@
     function drawTrail(id){
       clearTrail(id);
 
-      const mode=document.getElementById("trailLengthSelect").value;
+      const mode="session";
       const allHistory=trackHistory.get(id)||[];
-      const history=mode==="session"
-        ? allHistory
-        : allHistory.filter(p=>p.t>=Date.now()-Number(mode)*60*1000);
+      const history=allHistory;
 
       if(history.length<2)return;
 
@@ -1435,8 +1449,7 @@
       trailLayers.set(id,[line,startMarker,label,...pointLayers]);
     }
     async function loadPersistentTrack(id){
-      const mode=document.getElementById("trailLengthSelect").value;
-      const minutes=mode==="session"?720:Number(mode);
+      const minutes=720;
       try{
         const response=await fetch(`${AIRCRAFT_API}/track?icao=${encodeURIComponent(id.replace(/^~/,""))}&minutes=${minutes}`,{cache:"no-store"});
         if(!response.ok)throw new Error(`Track HTTP ${response.status}`);
@@ -1481,7 +1494,7 @@
       updateSelectedPanel();
       updateSidebar(filteredAircraft(),nearestIdFor(filteredAircraft()));
     }
-    function updateSelectedPanel(){const p=document.getElementById("selectedPanel"),a=lastAircraft.find(x=>aircraftId(x)===selectedAircraftId);if(!a){p.classList.remove("visible");return}p.classList.add("visible");const alt=altitudeFt(a),id=aircraftId(a);document.getElementById("selectedTitle").textContent=clean(a.flight,clean(a.r,a.hex?.toUpperCase()));document.getElementById("selectedSubtitle").textContent=`${clean(a.t,"UNKNOWN")} · ${clean(a.r,"NO REG")} · ${Math.round(heading(a))}° · TRACK SINCE ${new Date(SESSION_STARTED_AT).toLocaleTimeString("de-DE",{hour:"2-digit",minute:"2-digit"})}`;document.getElementById("selectedBadges").innerHTML=badgesHtml(a,nearestIdFor(filteredAircraft())?.id);document.getElementById("selectedAltitude").textContent=alt===0?"GROUND":formatFeet(alt);document.getElementById("selectedSpeed").textContent=formatKnots(speedKt(a));document.getElementById("selectedVertical").textContent=formatVertical(a);document.getElementById("selectedDistance").textContent=`${distanceNm(CENTER,{lat:Number(a.lat),lon:Number(a.lon)}).toFixed(1)} NM`;document.getElementById("selectedMuc").textContent=mucStatus(a);document.getElementById("selectedCategory").textContent=categoryLabel(category(a));document.getElementById("selectedCountry").innerHTML=countryHtml(a);const btn=document.getElementById("trackToggleBtn");btn.textContent=trackedIds.has(id)?"HIDE TRACK":"SHOW TRACK";btn.classList.toggle("active",trackedIds.has(id));updateSelectedPhoto(a)}
+    function updateSelectedPanel(){const p=document.getElementById("selectedPanel"),a=lastAircraft.find(x=>aircraftId(x)===selectedAircraftId);if(!a){p.classList.remove("visible");return}p.classList.add("visible");const alt=altitudeFt(a),id=aircraftId(a);document.getElementById("selectedTitle").innerHTML=`${clean(a.r,a.hex?.toUpperCase()||"NO REG")} · ${countryHtml(a)}`;document.getElementById("selectedSubtitle").textContent=`${clean(a.t,"UNKNOWN")} · ${clean(a.flight,"NO CALLSIGN")} · ${Math.round(heading(a))}° · TRACK SINCE ${new Date(SESSION_STARTED_AT).toLocaleTimeString("de-DE",{hour:"2-digit",minute:"2-digit"})}`;document.getElementById("selectedBadges").innerHTML=badgesHtml(a,nearestIdFor(filteredAircraft())?.id);document.getElementById("selectedAltitude").textContent=alt===0?"GROUND":formatFeet(alt);document.getElementById("selectedSpeed").textContent=formatKnots(speedKt(a));document.getElementById("selectedVertical").textContent=formatVertical(a);document.getElementById("selectedDistance").textContent=`${distanceNm(CENTER,{lat:Number(a.lat),lon:Number(a.lon)}).toFixed(1)} NM`;document.getElementById("selectedMuc").textContent=mucStatus(a);document.getElementById("selectedCategory").textContent=categoryLabel(category(a));const btn=document.getElementById("trackToggleBtn");btn.textContent=trackedIds.has(id)?"HIDE TRACK":"SHOW TRACK";btn.classList.toggle("active",trackedIds.has(id));updateSelectedPhoto(a)}
 
     function updateSidebar(arr,nearest){const airborne=arr.filter(a=>altitudeFt(a)!==0),alts=arr.map(altitudeFt).filter(Number.isFinite),nearestId=nearest?.id||null;document.getElementById("aircraftCount").textContent=arr.length;document.getElementById("airborneCount").textContent=airborne.length;document.getElementById("militaryCount").textContent=arr.filter(isMilitary).length;document.getElementById("nearestAircraft").textContent=nearest?nearest.d.toFixed(1):"—";document.getElementById("maxAltitude").textContent=alts.length?Math.round(Math.max(...alts)/100):"—";const list=document.getElementById("aircraftList");list.innerHTML="";arr.slice().sort((a,b)=>Number(isEmergency(b))-Number(isEmergency(a))||Number(isMilitary(b))-Number(isMilitary(a))||distanceNm(CENTER,{lat:Number(a.lat),lon:Number(a.lon)})-distanceNm(CENTER,{lat:Number(b.lat),lon:Number(b.lon)})).forEach(a=>{const id=aircraftId(a),alt=altitudeFt(a),cls=altitudeColorClass(a),cached=routeCache.get(callsign(a)),route=cached&&typeof cached.then!=="function"?routeText(cached):(callsign(a)?"Route wird geladen …":"Route nicht verfügbar"),row=document.createElement("div");row.className=`aircraft-row ${isMilitary(a)?"military ":""}${isEmergency(a)?"emergency ":""}${id===nearestId?"nearest ":""}${id===selectedAircraftId?"selected":""}`;const spec=iconSpec(a);row.innerHTML=`<div class="aircraft-icon ${cls}" title="${categoryLabel(category(a))} / ${spec.size.toUpperCase()}">${aircraftSvgFor(a,heading(a),"list")}</div><div class="aircraft-main"><strong>${clean(a.flight,clean(a.r,a.hex?.toUpperCase()))}${badgesHtml(a,nearestId)}</strong><span>${countryHtml(a)} · ${categoryLabel(category(a))} · ${clean(a.t,"TYPE UNKNOWN")} · ${spec.size.toUpperCase()} · ${formatVertical(a)}</span><span class="route ${cached?"":"loading"}">${route}</span></div><div class="aircraft-data"><span>${alt===0?"GROUND":formatFeet(alt)}</span><span>${distanceNm(CENTER,{lat:Number(a.lat),lon:Number(a.lon)}).toFixed(1)} NM</span></div>`;row.addEventListener("click",async()=>{selectAircraft(a);map.setView([Number(a.lat),Number(a.lon)],Math.max(map.getZoom(),11));markers.get(id)?.openPopup();await getRoute(a);markers.get(id)?.setPopupContent(popupHtml(a));updateSidebar(filteredAircraft(),nearestIdFor(filteredAircraft()))});list.appendChild(row)});if(!arr.length)list.innerHTML='<div style="padding:18px;color:#a9a9a9;font-size:11px;line-height:1.6;border:1px solid rgba(255,255,255,.12);border-radius:12px;background:#050505">Keine passenden Bewegungen im aktiven Filter.</div>'}
 
@@ -1502,149 +1515,63 @@
       });
     }
 
-    function haversineMeters(a,b){
-      return distanceNm(a,b)*1852;
-    }
-
-    function geometryLengthMeters(geometry=[]){
-      let total=0;
-      for(let i=1;i<geometry.length;i++){
-        total+=haversineMeters(
-          {lat:Number(geometry[i-1].lat),lon:Number(geometry[i-1].lon)},
-          {lat:Number(geometry[i].lat),lon:Number(geometry[i].lon)}
-        );
-      }
-      return total;
-    }
-
-    function elementCenter(element){
-      if(element.center)return {lat:Number(element.center.lat),lon:Number(element.center.lon)};
-      if(Number.isFinite(Number(element.lat))&&Number.isFinite(Number(element.lon)))return {lat:Number(element.lat),lon:Number(element.lon)};
-      if(Array.isArray(element.geometry)&&element.geometry.length){
-        const valid=element.geometry.filter(p=>Number.isFinite(Number(p.lat))&&Number.isFinite(Number(p.lon)));
-        if(valid.length)return {
-          lat:valid.reduce((sum,p)=>sum+Number(p.lat),0)/valid.length,
-          lon:valid.reduce((sum,p)=>sum+Number(p.lon),0)/valid.length
-        };
-      }
-      return null;
-    }
-
-    function airportDisplayName(tags={}){
-      return tags.iata||tags.icao||tags.name||tags["name:en"]||"AIRFIELD";
-    }
-
-    function runwayIsPaved(tags={}){
-      const surface=String(tags.surface||"").toLowerCase();
-      return /asphalt|concrete|paved|bitumen|tarmac/.test(surface);
-    }
-
-    function renderAirportsAndCtr(elements){
+    function loadAirportsAndCtr(){
       airportLayer.clearLayers();
       ctrLayer.clearLayers();
 
-      const aerodromes=elements.filter(e=>e.tags?.aeroway==="aerodrome").map(e=>({...e,_center:elementCenter(e)})).filter(e=>e._center);
-      const runways=elements.filter(e=>e.tags?.aeroway==="runway"&&Array.isArray(e.geometry)&&runwayIsPaved(e.tags))
-        .map(e=>({...e,_length:geometryLengthMeters(e.geometry),_center:elementCenter(e)}))
-        .filter(e=>e._center&&e._length>=MIN_PAVED_RUNWAY_M);
+      const airports=[
+        {icao:"EDDM",iata:"MUC",name:"Munich Airport",lat:48.3538,lon:11.7861,runway:4000,ctr:12},
+        {icao:"EDDN",iata:"NUE",name:"Nuremberg Airport",lat:49.4987,lon:11.0669,runway:2700,ctr:10},
+        {icao:"EDDS",iata:"STR",name:"Stuttgart Airport",lat:48.6899,lon:9.2219,runway:3345,ctr:11},
+        {icao:"EDDF",iata:"FRA",name:"Frankfurt Airport",lat:50.0379,lon:8.5622,runway:4000,ctr:14},
+        {icao:"EDJA",iata:"FMM",name:"Memmingen Airport",lat:47.9888,lon:10.2395,runway:2981,ctr:8},
+        {icao:"EDMA",iata:"AGB",name:"Augsburg Airport",lat:48.4252,lon:10.9317,runway:1594,ctr:6},
+        {icao:"EDMO",iata:"OBF",name:"Oberpfaffenhofen Airport",lat:48.0814,lon:11.2831,runway:2286,ctr:6},
+        {icao:"ETSI",iata:"IGS",name:"Ingolstadt Manching",lat:48.7157,lon:11.5340,runway:2940,ctr:7},
+        {icao:"EDMS",iata:"RBM",name:"Straubing Wallmühle",lat:48.9008,lon:12.5167,runway:1450,ctr:null},
+        {icao:"EDQM",iata:"HOQ",name:"Hof–Plauen Airport",lat:50.2888,lon:11.8549,runway:1480,ctr:null},
+        {icao:"LOWS",iata:"SZG",name:"Salzburg Airport",lat:47.7933,lon:13.0043,runway:2750,ctr:9},
+        {icao:"LOWI",iata:"INN",name:"Innsbruck Airport",lat:47.2602,lon:11.3440,runway:2000,ctr:8},
+        {icao:"LOWL",iata:"LNZ",name:"Linz Airport",lat:48.2332,lon:14.1875,runway:3000,ctr:9},
+        {icao:"LOWW",iata:"VIE",name:"Vienna Airport",lat:48.1103,lon:16.5697,runway:3600,ctr:13},
+        {icao:"LKPR",iata:"PRG",name:"Prague Airport",lat:50.1008,lon:14.2600,runway:3715,ctr:12},
+        {icao:"LSZH",iata:"ZRH",name:"Zurich Airport",lat:47.4581,lon:8.5555,runway:3700,ctr:12},
+        {icao:"LFSB",iata:"BSL",name:"EuroAirport Basel Mulhouse",lat:47.5896,lon:7.5299,runway:3900,ctr:11}
+      ];
 
-      const qualifyingAirports=[];
+      airports
+        .filter(a=>distanceNm(CENTER,{lat:a.lat,lon:a.lon})<=CONFIGURED_RADIUS_NM)
+        .forEach(a=>{
+          const major=a.runway>=2500;
+          L.marker([a.lat,a.lon],{icon:airportIcon(major)})
+            .bindTooltip(a.iata||a.icao,{permanent:true,direction:"right",offset:[10,0],className:"airport-label"})
+            .bindPopup(`<div class="popup-title">${a.iata||a.icao} · ${a.name}</div>
+              <div class="popup-grid">
+                <span>ICAO</span><b>${a.icao}</b>
+                <span>IATA</span><b>${a.iata||"—"}</b>
+                <span>Paved runway</span><b>${a.runway.toLocaleString("de-DE")} m</b>
+                <span>Radar HQ</span><b>${distanceNm(CENTER,{lat:a.lat,lon:a.lon}).toFixed(1)} NM</b>
+              </div>`)
+            .addTo(airportLayer);
 
-      runways.forEach(runway=>{
-        const nearest=aerodromes
-          .map(a=>({a,d:haversineMeters(runway._center,a._center)}))
-          .filter(x=>x.d<=8000)
-          .sort((x,y)=>x.d-y.d)[0];
-
-        const tags=nearest?.a?.tags||{};
-        const center=nearest?.a?._center||runway._center;
-        const key=nearest?.a?`${nearest.a.type}-${nearest.a.id}`:`runway-${runway.id}`;
-
-        if(!qualifyingAirports.some(a=>a.key===key)){
-          qualifyingAirports.push({
-            key,
-            center,
-            tags,
-            maxRunwayM:runway._length
-          });
-        }else{
-          const existing=qualifyingAirports.find(a=>a.key===key);
-          existing.maxRunwayM=Math.max(existing.maxRunwayM,runway._length);
-        }
-
-        L.polyline(
-          runway.geometry.map(p=>[Number(p.lat),Number(p.lon)]),
-          {color:"#fff",weight:2,opacity:.62,interactive:false}
-        ).addTo(airportLayer);
-      });
-
-      qualifyingAirports.forEach(airport=>{
-        const name=airportDisplayName(airport.tags);
-        const major=Boolean(airport.tags.iata)||airport.maxRunwayM>=1800;
-        const marker=L.marker([airport.center.lat,airport.center.lon],{icon:airportIcon(major)})
-          .bindTooltip(name,{permanent:true,direction:"right",offset:[10,0],className:"airport-label"})
-          .bindPopup(`<div class="popup-title">${name}</div>
-            <div class="popup-grid">
-              <span>Name</span><b>${clean(airport.tags.name||airport.tags["name:en"],"—")}</b>
-              <span>ICAO</span><b>${clean(airport.tags.icao)}</b>
-              <span>IATA</span><b>${clean(airport.tags.iata)}</b>
-              <span>Longest paved runway</span><b>${Math.round(airport.maxRunwayM).toLocaleString("de-DE")} m</b>
-            </div>`);
-        marker.addTo(airportLayer);
-      });
-
-      const ctrElements=elements.filter(e=>{
-        const tags=e.tags||{};
-        const values=[tags.airspace,tags["airspace:type"],tags.class,tags.type,tags.boundary,tags.name].filter(Boolean).join(" ").toUpperCase();
-        return values.includes("CTR")||values.includes("CONTROL ZONE")||tags.airspace==="control_zone";
-      });
-
-      ctrElements.forEach(element=>{
-        if(!Array.isArray(element.geometry)||element.geometry.length<3)return;
-        const latlngs=element.geometry.map(p=>[Number(p.lat),Number(p.lon)]).filter(p=>Number.isFinite(p[0])&&Number.isFinite(p[1]));
-        if(latlngs.length<3)return;
-        const polygon=L.polygon(latlngs,{
-          color:"#DDFF2C",
-          weight:1,
-          opacity:.75,
-          dashArray:"6 6",
-          fillColor:"#183032",
-          fillOpacity:.08
-        }).bindTooltip(clean(element.tags?.name,"CTR"),{sticky:true,className:"ctr-label"});
-        polygon.addTo(ctrLayer);
-      });
+          if(a.ctr){
+            L.circle([a.lat,a.lon],{
+              radius:a.ctr*1852,
+              color:"#DDFF2C",
+              weight:1,
+              opacity:.68,
+              dashArray:"6 6",
+              fillColor:"#183032",
+              fillOpacity:.06
+            })
+              .bindTooltip(`${a.icao} CTR OVERVIEW`,{sticky:true,className:"ctr-label"})
+              .addTo(ctrLayer);
+          }
+        });
 
       if(!airportLayerVisible){
         map.removeLayer(airportLayer);
         map.removeLayer(ctrLayer);
-      }
-    }
-
-    async function loadAirportsAndCtr(){
-      const query=`[out:json][timeout:35];
-      (
-        nwr(around:${AIRPORT_DATA_RADIUS_M},${CENTER.lat},${CENTER.lon})["aeroway"="aerodrome"];
-        way(around:${AIRPORT_DATA_RADIUS_M},${CENTER.lat},${CENTER.lon})["aeroway"="runway"]["surface"~"asphalt|concrete|paved|bitumen|tarmac",i];
-        way(around:${AIRPORT_DATA_RADIUS_M},${CENTER.lat},${CENTER.lon})["airspace"="control_zone"];
-        relation(around:${AIRPORT_DATA_RADIUS_M},${CENTER.lat},${CENTER.lon})["airspace"="control_zone"];
-        way(around:${AIRPORT_DATA_RADIUS_M},${CENTER.lat},${CENTER.lon})["class"="CTR"];
-        relation(around:${AIRPORT_DATA_RADIUS_M},${CENTER.lat},${CENTER.lon})["class"="CTR"];
-        way(around:${AIRPORT_DATA_RADIUS_M},${CENTER.lat},${CENTER.lon})["name"~"CTR|Control Zone",i];
-        relation(around:${AIRPORT_DATA_RADIUS_M},${CENTER.lat},${CENTER.lon})["name"~"CTR|Control Zone",i];
-      );
-      out tags center geom;`;
-
-      try{
-        const response=await fetch(OVERPASS_API,{
-          method:"POST",
-          headers:{"Content-Type":"application/x-www-form-urlencoded;charset=UTF-8"},
-          body:`data=${encodeURIComponent(query)}`
-        });
-        if(!response.ok)throw new Error(`Overpass HTTP ${response.status}`);
-        const data=await response.json();
-        renderAirportsAndCtr(data.elements||[]);
-      }catch(error){
-        console.warn("Airport/CTR data failed",error);
       }
     }
 
@@ -1813,7 +1740,6 @@
     document.getElementById("categorySelect").addEventListener("change",e=>{activeCategory=e.target.value;applyFilter()});
     document.getElementById("airportModeBtn").addEventListener("click",e=>{airportMode=!airportMode;e.currentTarget.classList.toggle("secondary-active",airportMode);applyFilter()});
     document.getElementById("approachBtn").addEventListener("click",e=>{approachMode=!approachMode;e.currentTarget.classList.toggle("secondary-active",approachMode);applyFilter()});
-    document.getElementById("trailLengthSelect").addEventListener("change",async()=>{for(const id of trackedIds){await loadPersistentTrack(id);drawTrail(id)}});
     document.getElementById("airportLayerBtn").addEventListener("click",e=>{
       airportLayerVisible=!airportLayerVisible;
       if(airportLayerVisible){
@@ -1829,7 +1755,6 @@
       }
     });
     document.getElementById("mapModeBtn").addEventListener("click",e=>{mapDetail=!mapDetail;document.body.classList.toggle("map-detail",mapDetail);document.body.classList.toggle("map-ops",!mapDetail);if(mapDetail){map.removeLayer(osmLayer);cartoLayer.addTo(map);e.currentTarget.textContent="MAP OPS"}else{map.removeLayer(cartoLayer);osmLayer.addTo(map);e.currentTarget.textContent="MAP DETAIL"}});
-    document.getElementById("opsViewBtn").addEventListener("click",e=>{document.body.classList.toggle("ops-view");e.currentTarget.classList.toggle("secondary-active");setTimeout(()=>map.invalidateSize(),250)});
     document.getElementById("trackToggleBtn").addEventListener("click",()=>{if(selectedAircraftId)toggleTrack(selectedAircraftId)});
     document.getElementById("clearSelectionBtn").addEventListener("click",()=>{selectedAircraftId=null;updateSelectedPanel();updateSidebar(filteredAircraft(),nearestIdFor(filteredAircraft()))});
     document.getElementById("openExchangeBtn").addEventListener("click",()=>{const a=lastAircraft.find(x=>aircraftId(x)===selectedAircraftId),hex=(a?.hex||"").replace(/^~/,"");if(hex)window.open(`https://globe.adsbexchange.com/?icao=${encodeURIComponent(hex)}`,"_blank","noopener")});
