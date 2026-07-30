@@ -536,6 +536,12 @@
       white-space:nowrap;
     }
     .ctr-label:before{display:none}
+    .leaflet-interactive:focus,
+    .leaflet-interactive:focus-visible,
+    .leaflet-container svg:focus,
+    .leaflet-container path:focus{
+      outline:none !important;
+    }
 
     .plane-marker{background:transparent;border:0}
     .plane-marker-wrap{width:30px;height:30px;display:flex;align-items:center;justify-content:center;color:#fff;filter:drop-shadow(0 0 5px rgba(255,255,255,.7))}
