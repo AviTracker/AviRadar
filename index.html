@@ -40,14 +40,14 @@
     .leaflet-control-attribution{background:rgba(0,0,0,.78)!important;color:#858585!important}
     .leaflet-control-attribution a{color:#fff!important}
 
-    .topbar{position:fixed;z-index:1000;top:18px;left:18px;right:18px;min-height:74px;padding:12px 14px;display:flex;align-items:center;justify-content:space-between;gap:18px;background:var(--panel);border:1px solid var(--line);border-radius:18px;backdrop-filter:blur(18px);box-shadow:0 18px 60px var(--shadow)}
+    .topbar{position:fixed;z-index:1000;top:18px;left:18px;right:18px;min-height:74px;padding:12px 14px;display:flex;align-items:center;justify-content:flex-start;gap:18px;background:var(--panel);border:1px solid var(--line);border-radius:18px;backdrop-filter:blur(18px);box-shadow:0 18px 60px var(--shadow)}
     .topbar:after{content:"";position:absolute;right:22px;bottom:-1px;left:22px;height:1px;background:linear-gradient(90deg,transparent,var(--accent),transparent);opacity:.8}
     .brand{display:flex;align-items:center;min-width:0;gap:14px}
     .brand-copy{min-width:0}
     .brand-copy h1{margin:0 0 4px;font-size:15px;font-weight:700;letter-spacing:.14em;text-transform:uppercase;white-space:nowrap}
-    .brand-copy h1:before{content:"SYS // ";color:var(--accent)}
+    .brand-copy h1:before{content:"AviRadar // ";color:var(--accent);text-transform:none}
     .brand-copy p{margin:0;color:var(--muted);font-size:10px;letter-spacing:.03em;white-space:nowrap}
-    .controls{display:flex;align-items:center;justify-content:flex-end;gap:7px;flex-wrap:wrap}
+    .controls{margin-left:0;display:flex;align-items:center;justify-content:flex-end;gap:7px;flex-wrap:wrap}
     .status{display:flex;align-items:center;gap:8px;padding:0 4px;color:var(--muted);font-size:10px;letter-spacing:.04em;text-transform:uppercase}
     .status-dot{width:8px;height:8px;border-radius:2px;background:var(--accent);box-shadow:0 0 12px rgba(221,255,44,.8)}
     .status-dot.error{background:#fff;box-shadow:none}
@@ -580,8 +580,8 @@
   <div id="map"></div>
   <header class="topbar">
     <div class="brand">
-      <span class="avilus-wordmark">AVILUS</span></div>
       <div class="brand-copy"><h1>M.A.R.V.I.N.</h1><p>Marketing Avilus Radar for Visual Identification &amp; Navigation · Ismaning</p></div>
+    </div>
     </div>
     <div class="controls">
       <div class="status" aria-live="polite"><span id="statusDot" class="status-dot"></span><span id="statusText">Verbinde …</span></div>
