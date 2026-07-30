@@ -1117,7 +1117,7 @@
     function countryHtml(a){
       const country=resolvedCountry(a);
       const flag=country.code
-        ?`<img class="country-flag" src="https://flagcdn.com/24x18/${country.code.toLowerCase()}.png" alt="${country.name}" loading="lazy">`
+        ?`<img class="country-flag" src="https://flagcdn.com/24x18/${country.code.toLowerCase()}.png" alt="" loading="lazy" onerror="this.style.display='none'">`
         :`<span class="country-flag" style="background:#183032"></span>`;
       return `<span class="country-origin">${flag}<span class="country-name">${country.name}</span></span>`;
     }
@@ -1587,7 +1587,7 @@
     async function primeRoutes(list){const q=list.filter(a=>callsign(a)&&!routeCache.has(callsign(a))).slice(0,8);for(let i=0;i<q.length;i+=4){const batch=q.slice(i,i+4);await Promise.all(batch.map(getRoute));updateSidebar(filteredAircraft(),nearestIdFor(filteredAircraft()));batch.forEach(a=>markers.get(aircraftId(a))?.setPopupContent(popupHtml(a)))}}
 
     async function primeMilitaryIntelligence(list){
-      const candidates=list.filter(isMilitary).filter(a=>!intelligenceCache.has(intelligenceKey(a))).slice(0,8);
+      const candidates=list.filter(a=>!intelligenceCache.has(intelligenceKey(a))).slice(0,12);
       await Promise.allSettled(candidates.map(async a=>{
         try{
           const response=await fetch(`${AIRCRAFT_API}/identify?${intelligenceParams(a).toString()}`,{cache:"no-store"});
