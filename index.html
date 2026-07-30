@@ -540,6 +540,22 @@
     @media(max-width:1120px){.departures-panel{display:none}}
 @media(max-width:980px){.topbar{top:10px;right:10px;left:10px;align-items:flex-start}.sidebar{right:10px;bottom:10px;left:10px;top:auto;width:auto;height:49vh}.notice{display:none}.status,#centerBtn{display:none}.summary-grid{grid-template-columns:repeat(5,1fr)}}
     @media(max-width:680px){.topbar{gap:8px}.brand{gap:8px}.brand-copy h1{font-size:10px}.brand-copy h1:before{display:none}.controls{gap:4px}.segment button{min-width:42px;padding:0 6px}.controls .optional{display:none}button.control,select.control{height:35px;padding:0 7px}.summary-grid{grid-template-columns:repeat(2,1fr)}.sidebar{height:55vh}.selected-grid{grid-template-columns:repeat(2,1fr)}}
+  
+    /* Compact live-weather panel */
+    .weather-window{padding:10px 12px}
+    .weather-top{align-items:center;margin-bottom:0}
+    .weather-main{gap:8px;margin-top:4px}
+    .weather-icon{font-size:24px}
+    .weather-temp{font-size:25px}
+    .weather-condition{font-size:9px}
+    .weather-updated{font-size:7px;line-height:1.5}
+    .weather-refresh{margin-top:3px;padding:3px 6px;font-size:7px}
+    .weather-metrics{grid-template-columns:repeat(3,minmax(0,1fr));gap:5px;margin-top:8px}
+    .weather-metric{padding:6px}
+    .weather-metric span{font-size:7px}
+    .weather-metric b{font-size:9px}
+    .weather-hours{display:none!important}
+
   </style>
 </head>
 <body class="map-ops">
@@ -569,6 +585,7 @@
         <div class="metric"><strong id="militaryCount">0</strong><span>Military</span></div>
         <div class="metric"><strong id="nearestAircraft">—</strong><span>Nearest NM</span></div>
         <div class="metric"><strong id="maxAltitude">—</strong><span>Max FL</span></div>
+        <div class="metric"><strong id="liveUsers">—</strong><span>Live Users</span></div>
       </div>
       <div class="filter-note">MUC INBOUND/OUTBOUND ist eine geometrische Einschätzung. Flugplatz- und CTR-Daten stammen aus OpenStreetMap und sind nicht für Navigation oder Flugplanung bestimmt.</div>
     </section>
@@ -646,6 +663,7 @@
     const AIRCRAFT_API="https://aviradar-api.joschko-hammermann.workers.dev";
     const WEATHER_REFRESH_MS=10*60*1000;
     const WEATHER_API="https://api.open-meteo.com/v1/forecast";
+    const PRESENCE_REFRESH_MS=30000;
     const OVERPASS_API="https://overpass-api.de/api/interpreter";
     const AIRPORT_DATA_RADIUS_M=370400;
     const MIN_PAVED_RUNWAY_M=800;
@@ -1632,23 +1650,7 @@
     function renderWeather(data){
       const host=document.getElementById("weatherContent");
       const current=data?.current;
-      const hourly=data?.hourly;
-      if(!host||!current||!hourly)throw new Error("Unvollständige Wetterdaten");
-
-      const currentTime=new Date(current.time);
-      const startIndex=Math.max(
-        0,
-        hourly.time.findIndex(time=>new Date(time)>=currentTime)
-      );
-
-      const nextHours=hourly.time
-        .slice(startIndex,startIndex+6)
-        .map((time,index)=>({
-          time:new Date(time),
-          temperature:hourly.temperature_2m[startIndex+index],
-          precipitation:hourly.precipitation_probability[startIndex+index],
-          code:hourly.weather_code[startIndex+index]
-        }));
+      if(!host||!current)throw new Error("Unvollständige Wetterdaten");
 
       host.innerHTML=`
         <div class="weather-top">
@@ -1663,29 +1665,15 @@
             </div>
           </div>
           <div class="weather-updated">
-            UPDATED<br>${new Date().toLocaleTimeString("de-DE",{hour:"2-digit",minute:"2-digit"})}
+            LIVE · ${new Date().toLocaleTimeString("de-DE",{hour:"2-digit",minute:"2-digit"})}
             <br><button id="weatherRefreshBtn" class="weather-refresh" type="button">REFRESH</button>
           </div>
         </div>
-
         <div class="weather-metrics">
-          <div class="weather-metric"><span>Gefühlt</span><b>${Math.round(current.apparent_temperature)} °C</b></div>
           <div class="weather-metric"><span>Wind</span><b>${Math.round(current.wind_speed_10m)} km/h ${windDirectionLabel(current.wind_direction_10m)}</b></div>
           <div class="weather-metric"><span>Böen</span><b>${Math.round(current.wind_gusts_10m)} km/h</b></div>
           <div class="weather-metric"><span>Niederschlag</span><b>${Number(current.precipitation).toFixed(1)} mm</b></div>
-        </div>
-
-        <div class="weather-hours">
-          ${nextHours.map(hour=>`
-            <div class="weather-hour">
-              <time>${hour.time.toLocaleTimeString("de-DE",{hour:"2-digit",minute:"2-digit"})}</time>
-              <i>${weatherSymbol(hour.code,1)}</i>
-              <b>${Math.round(hour.temperature)}°</b>
-              <small>${Math.round(hour.precipitation||0)}% rain</small>
-            </div>
-          `).join("")}
-        </div>
-      `;
+        </div>`;
 
       document.getElementById("weatherRefreshBtn")?.addEventListener("click",loadWeather);
     }
@@ -1706,12 +1694,6 @@
             "wind_gusts_10m",
             "precipitation"
           ].join(","),
-          hourly:[
-            "temperature_2m",
-            "precipitation_probability",
-            "weather_code"
-          ].join(","),
-          forecast_days:"1",
           timezone:"Europe/Berlin"
         });
 
@@ -1728,6 +1710,29 @@
             </div>`;
           document.getElementById("weatherRefreshBtn")?.addEventListener("click",loadWeather);
         }
+      }
+    }
+
+    function getPresenceSessionId(){
+      let id=sessionStorage.getItem("marvin_presence_id");
+      if(!id){
+        id=(crypto.randomUUID?.()||`${Date.now()}-${Math.random().toString(16).slice(2)}`).replace(/[^a-zA-Z0-9-]/g,"").slice(0,64);
+        sessionStorage.setItem("marvin_presence_id",id);
+      }
+      return id;
+    }
+
+    async function updatePresence(){
+      const output=document.getElementById("liveUsers");
+      try{
+        const session=getPresenceSessionId();
+        const response=await fetch(`${AIRCRAFT_API}/presence?session=${encodeURIComponent(session)}`,{cache:"no-store"});
+        if(!response.ok)throw new Error(`Presence HTTP ${response.status}`);
+        const data=await response.json();
+        if(output)output.textContent=Number.isFinite(Number(data.activeUsers))?String(data.activeUsers):"—";
+      }catch(error){
+        console.warn("Presence update failed",error);
+        if(output)output.textContent="—";
       }
     }
 
@@ -1765,6 +1770,7 @@
     loadWeather();
     setInterval(loadCentralDepartures,60000);
     setInterval(loadWeather,WEATHER_REFRESH_MS);
+    setInterval(updatePresence,PRESENCE_REFRESH_MS);
   </script>
 </body>
 </html>
