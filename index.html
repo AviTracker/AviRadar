@@ -812,47 +812,46 @@
         ?`https://www.planespotters.net/photos/reg/${encodeURIComponent(registration)}`
         :null;
     }
-    function normalizedPhotoToken(value){
-      return String(value||"")
-        .toUpperCase()
-        .normalize("NFD")
-        .replace(/[\u0300-\u036f]/g,"")
-        .replace(/[^A-Z0-9]/g,"");
+    function registrationVariants(registration){
+      const value=String(registration||"").toUpperCase().replace(/\s+/g,"");
+      if(!value)return[];
+      return [...new Set([
+        value,
+        value.replace(/\+/g,"-"),
+        value.replace(/[+\-]/g,""),
+        value.replace(/\+/g," ")
+      ])];
     }
 
-    function registrationAliases(registration){
-      const raw=String(registration||"").trim().toUpperCase();
-      const compact=normalizedPhotoToken(raw);
-      const aliases=new Set([raw,compact]);
-      if(raw.includes("+")){
-        aliases.add(raw.replace("+"," "));
-        aliases.add(raw.replace("+","-"));
-        aliases.add(raw.replace("+",""));
-      }
-      return [...aliases].filter(Boolean);
-    }
+    function commonsSearchTerms(a){
+      const registration=clean(a.r,"").toUpperCase().replace(/\s+/g,"");
+      const type=clean(a.t,"").toUpperCase().replace(/\s+/g,"");
+      const operator=clean(a.ownOp,"").trim();
 
-    function commonsSearchTerms(a,assessment=null){
-      const registration=clean(assessment?.registration||a.r,"").toUpperCase().replace(/\s+/g,"");
-      const type=clean(assessment?.aircraftType||assessment?.icaoType||a.t,"").toUpperCase();
-      const identity=clean(assessment?.identity,"");
-      const operator=clean(assessment?.operator||a.ownOp,"").trim();
       const terms=[];
 
       if(registration){
-        for(const alias of registrationAliases(registration)){
-          terms.push(`"${alias}" aircraft`);
-        }
-        if(identity)terms.push(`"${registration}" "${identity}"`);
-        if(type)terms.push(`"${registration}" "${type}"`);
-        if(operator)terms.push(`"${registration}" "${operator}"`);
+        registrationVariants(registration).forEach(value=>terms.push(`"${value}" aircraft`));
       }
 
-      return {registration,type,identity,operator,terms:[...new Set(terms)]};
+      if(type&&operator){
+        terms.push(`"${type}" "${operator}" aircraft`);
+      }
+
+      if(type){
+        terms.push(`"${type}" aircraft`);
+      }
+
+      return {
+        registration,
+        terms:[...new Set(terms)]
+      };
     }
 
     function commonsFilePage(title){
-      return `https://commons.wikimedia.org/wiki/${encodeURIComponent(String(title||"").replace(/ /g,"_"))}`;
+      return `https://commons.wikimedia.org/wiki/${encodeURIComponent(
+        String(title||"").replace(/ /g,"_")
+      )}`;
     }
 
     function commonsMetadataValue(metadata,key){
@@ -865,77 +864,103 @@
       return holder.textContent?.trim() || "";
     }
 
-    function photoCandidateText(page,metadata){
-      return [
-        page?.title,
-        commonsMetadataValue(metadata,"ImageDescription"),
-        commonsMetadataValue(metadata,"ObjectName"),
-        commonsMetadataValue(metadata,"Categories"),
-        commonsMetadataValue(metadata,"Credit")
-      ].map(stripHtml).join(" ");
-    }
+    async function searchCommonsPhoto(a){
+      const {registration,terms}=commonsSearchTerms(a);
+      const cacheKey=registration || `${clean(a.t,"")}|${clean(a.ownOp,"")}`;
 
-    function registrationMatchesPhoto(registration,text){
-      if(!registration)return false;
-      const haystack=normalizedPhotoToken(text);
-      return registrationAliases(registration)
-        .map(normalizedPhotoToken)
-        .filter(Boolean)
-        .some(alias=>haystack.includes(alias));
-    }
+      if(!terms.length){
+        return null;
+      }
 
-    async function searchCommonsPhoto(a,assessment=null){
-      const {registration,type,identity,operator,terms}=commonsSearchTerms(a,assessment);
-      const cacheKey=`verified:${registration}|${type}|${operator}`;
-      if(!registration||!terms.length)return null;
-      if(planespottersPhotoCache.has(cacheKey))return await planespottersPhotoCache.get(cacheKey);
+      if(planespottersPhotoCache.has(cacheKey)){
+        return await planespottersPhotoCache.get(cacheKey);
+      }
 
       const pending=(async()=>{
         for(const term of terms){
           const params=new URLSearchParams({
-            action:"query",generator:"search",gsrsearch:term,gsrnamespace:"6",gsrlimit:"20",
-            prop:"imageinfo",iiprop:"url|extmetadata|mime",iiurlwidth:"1000",format:"json",origin:"*"
+            action:"query",
+            generator:"search",
+            gsrsearch:term,
+            gsrnamespace:"6",
+            gsrlimit:"12",
+            prop:"imageinfo",
+            iiprop:"url|extmetadata",
+            iiurlwidth:"1000",
+            format:"json",
+            origin:"*"
           });
+
           try{
-            const response=await fetch(`https://commons.wikimedia.org/w/api.php?${params.toString()}`,{cache:"force-cache"});
-            if(!response.ok)continue;
+            const response=await fetch(
+              `https://commons.wikimedia.org/w/api.php?${params.toString()}`,
+              {cache:"force-cache"}
+            );
+
+            if(!response.ok){
+              continue;
+            }
+
             const data=await response.json();
             const pages=Object.values(data?.query?.pages||{});
-            const normalizedType=normalizedPhotoToken(type);
-            const normalizedIdentity=normalizedPhotoToken(identity);
-            const normalizedOperator=normalizedPhotoToken(operator);
 
-            const ranked=pages.map(page=>{
-              const info=page?.imageinfo?.[0];
-              const metadata=info?.extmetadata||{};
-              const title=String(page?.title||"");
-              const text=photoCandidateText(page,metadata);
-              const normalizedText=normalizedPhotoToken(text);
-              const registrationMatch=registrationMatchesPhoto(registration,text);
-              const typeMatch=Boolean(normalizedType&&normalizedText.includes(normalizedType));
-              const identityMatch=Boolean(normalizedIdentity&&normalizedText.includes(normalizedIdentity));
-              const operatorMatch=Boolean(normalizedOperator&&normalizedText.includes(normalizedOperator));
-              let score=registrationMatch?200:0;
-              if(identityMatch)score+=50;
-              if(typeMatch)score+=35;
-              if(operatorMatch)score+=45;
-              const mime=String(info?.mime||"");
-              return {
-                score,
-                usable:Boolean(info?.thumburl||info?.url)&&mime.startsWith("image/"),
-                registrationMatch,
-                imageUrl:info?.thumburl||info?.url||null,
-                pageUrl:info?.descriptionurl||commonsFilePage(title),
-                title,
-                author:stripHtml(commonsMetadataValue(metadata,"Artist")||commonsMetadataValue(metadata,"Credit")),
-                license:stripHtml(commonsMetadataValue(metadata,"LicenseShortName")||commonsMetadataValue(metadata,"UsageTerms"))
-              };
-            }).filter(item=>item.usable&&item.registrationMatch).sort((a,b)=>b.score-a.score);
-            if(ranked.length)return ranked[0];
+            const ranked=pages
+              .map(page=>{
+                const info=page?.imageinfo?.[0];
+                const metadata=info?.extmetadata||{};
+                const title=String(page?.title||"");
+                const titleUpper=title.toUpperCase();
+                const metadataText=[
+                  title,
+                  commonsMetadataValue(metadata,"ImageDescription"),
+                  commonsMetadataValue(metadata,"ObjectName"),
+                  commonsMetadataValue(metadata,"Credit"),
+                  commonsMetadataValue(metadata,"Categories")
+                ].join(" ").toUpperCase();
+                let score=0;
+
+                const regVariants=registrationVariants(registration);
+                const exactRegistrationMatch=registration
+                  ? regVariants.some(value=>metadataText.includes(value.toUpperCase()))
+                  : false;
+
+                if(exactRegistrationMatch)score+=200;
+
+                const type=clean(a.t,"").toUpperCase();
+                if(type&&metadataText.includes(type))score+=25;
+                if(/^A400/.test(type)&&/A400M/.test(metadataText))score+=40;
+                if(callsign(a).startsWith("GAF")&&/(GERMAN AIR FORCE|LUFTWAFFE)/.test(metadataText))score+=35;
+
+                const mime=String(info?.mime||"");
+                const usable=Boolean(info?.thumburl||info?.url) && (!registration || exactRegistrationMatch);
+
+                return {
+                  score,
+                  usable,
+                  imageUrl:info?.thumburl||info?.url||null,
+                  pageUrl:info?.descriptionurl||commonsFilePage(title),
+                  title,
+                  author:stripHtml(
+                    commonsMetadataValue(metadata,"Artist") ||
+                    commonsMetadataValue(metadata,"Credit")
+                  ),
+                  license:stripHtml(
+                    commonsMetadataValue(metadata,"LicenseShortName") ||
+                    commonsMetadataValue(metadata,"UsageTerms")
+                  )
+                };
+              })
+              .filter(item=>item.usable)
+              .sort((a,b)=>b.score-a.score);
+
+            if(ranked.length){
+              return ranked[0];
+            }
           }catch(error){
             console.warn("Wikimedia aircraft photo lookup failed",term,error);
           }
         }
+
         return null;
       })();
 
@@ -945,45 +970,67 @@
       return result;
     }
 
-    async function updateSelectedPhoto(a,assessment=null){
+    async function updateSelectedPhoto(a){
       const stage=document.getElementById("selectedPhotoStage");
       const link=document.getElementById("selectedPhotoLink");
       const caption=document.getElementById("selectedPhotoCaption");
-      const registration=clean(assessment?.registration||a.r,"").toUpperCase().replace(/\s+/g,"");
-      const planespottersPage=registration
-        ?`https://www.planespotters.net/photos/reg/${encodeURIComponent(registration)}`
-        :null;
+      const planespottersPage=planespottersUrl(a);
+      const registration=clean(a.r,"").toUpperCase().replace(/\s+/g,"");
       const requestAircraftId=aircraftId(a);
-      if(!stage||!link||!caption)return;
 
-      if(planespottersPage){link.href=planespottersPage;link.hidden=false;}else{link.hidden=true;}
-      stage.className="selected-photo-stage loading";
-      stage.innerHTML="";
-      caption.textContent=registration?`Suche verifiziertes Foto für ${registration} …`:"Keine Registrierung für eine sichere Fotosuche verfügbar.";
-
-      const databasePhoto=assessment?.photo?.thumbnailUrl||assessment?.photo?.url||null;
-      if(databasePhoto){
-        if(selectedAircraftId!==requestAircraftId)return;
-        stage.className="selected-photo-stage";
-        stage.innerHTML=`<a href="${assessment?.photo?.url||databasePhoto}" target="_blank" rel="noopener noreferrer"><img src="${databasePhoto}" alt="Flugzeugfoto ${registration}" loading="lazy"></a>`;
-        caption.textContent=`Verifiziert über ${assessment?.source||"öffentliche Aircraft-Datenbank"}.`;
+      if(!stage||!link||!caption){
         return;
       }
 
-      const photo=await searchCommonsPhoto(a,assessment);
-      if(selectedAircraftId!==requestAircraftId)return;
+      if(planespottersPage){
+        link.href=planespottersPage;
+        link.hidden=false;
+      }else{
+        link.hidden=true;
+      }
+
+      stage.className="selected-photo-stage loading";
+      stage.innerHTML="";
+      caption.textContent=registration
+        ?`Suche frei verfügbares Foto für ${registration} …`
+        :"Suche frei verfügbares Foto nach Flugzeugtyp …";
+
+      const photo=await searchCommonsPhoto(a);
+
+      if(selectedAircraftId!==requestAircraftId){
+        return;
+      }
 
       if(photo?.imageUrl){
-        const attribution=[photo.author?`Foto: ${photo.author}`:"",photo.license?`Lizenz: ${photo.license}`:"","Quelle: Wikimedia Commons"].filter(Boolean).join(" · ");
+        const imageLink=photo.pageUrl||planespottersPage||"#";
+        const attribution=[
+          photo.author ? `Foto: ${photo.author}` : "",
+          photo.license ? `Lizenz: ${photo.license}` : "",
+          "Quelle: Wikimedia Commons"
+        ].filter(Boolean).join(" · ");
+
         stage.className="selected-photo-stage";
-        stage.innerHTML=`<a href="${photo.pageUrl||planespottersPage||"#"}" target="_blank" rel="noopener noreferrer"><img src="${photo.imageUrl}" alt="Flugzeugfoto ${registration}" loading="lazy"></a>`;
+        stage.innerHTML=`
+          <a
+            href="${imageLink}"
+            target="_blank"
+            rel="noopener noreferrer"
+          >
+            <img
+              src="${photo.imageUrl}"
+              alt="Flugzeugfoto ${registration||clean(a.t,"")}"
+              loading="lazy"
+            >
+          </a>
+        `;
+
         caption.textContent=attribution;
       }else{
         stage.className="selected-photo-stage empty";
         stage.innerHTML="";
         caption.textContent=registration
-          ?`Für ${registration} wurde kein verifiziertes Foto gefunden. Ein unpassendes Ersatzbild wird nicht angezeigt.`
-          :"Ohne Registrierung wird kein unsicheres Ersatzbild angezeigt.";
+          ?`Für ${registration} wurde auf Wikimedia Commons kein passendes Foto gefunden.`
+          :"Für diesen Flugzeugtyp wurde auf Wikimedia Commons kein passendes Foto gefunden.";
       }
     }
     const REGISTRATION_COUNTRIES=[
@@ -1019,6 +1066,7 @@
     function registrationCountry(a){
       const registration=clean(a.r,"").toUpperCase().replace(/\s+/g,"");
       if(!registration)return {code:null,name:"Unknown",flag:"🏳️"};
+      if(/^\d{2}\+\d{2}$/.test(registration))return {code:"DE",name:"Germany",flag:flagEmoji("DE")};
       const match=REGISTRATION_COUNTRIES.find(([prefix])=>registration.startsWith(prefix));
       if(!match)return {code:null,name:"Unknown",flag:"🏳️"};
       return {code:match[1],name:match[2],flag:flagEmoji(match[1])};
@@ -1570,9 +1618,7 @@
       const content=document.getElementById("intelligenceContent");
       const badge=document.getElementById("intelligenceConfidence");
       if(!force&&intelligenceCache.has(key)){
-        const cached=intelligenceCache.get(key);
-        renderIntelligence(cached);
-        updateSelectedPhoto(a,cached?.assessment);
+        renderIntelligence(intelligenceCache.get(key));
         return;
       }
       if(content){content.className="intelligence-loading";content.textContent="Identifying aircraft …";}
@@ -1582,17 +1628,7 @@
         if(!response.ok)throw new Error(`Identify HTTP ${response.status}`);
         const data=await response.json();
         intelligenceCache.set(key,data);
-        if(selectedAircraftId===aircraftId(a)){
-          renderIntelligence(data);
-          updateSelectedPhoto(a,data?.assessment);
-          const x=data?.assessment;
-          if(x?.registration){
-            document.getElementById("selectedTitle").innerHTML=`${x.registration} · ${countryHtml({...a,r:x.registration})}`;
-          }
-          if(x?.identity){
-            document.getElementById("selectedSubtitle").textContent=`${x.identity} · ${clean(a.flight,"NO CALLSIGN")} · ${Math.round(heading(a))}° · TRACK SINCE ${new Date(SESSION_STARTED_AT).toLocaleTimeString("de-DE",{hour:"2-digit",minute:"2-digit"})}`;
-          }
-        }
+        if(selectedAircraftId===aircraftId(a))renderIntelligence(data);
       }catch(error){
         console.warn("Aircraft identification failed",error);
         if(content){content.className="intelligence-loading";content.textContent="Identification unavailable.";}
@@ -1600,7 +1636,7 @@
       }
     }
 
-    function updateSelectedPanel(){const p=document.getElementById("selectedPanel"),a=lastAircraft.find(x=>aircraftId(x)===selectedAircraftId);if(!a){p.classList.remove("visible");return}p.classList.add("visible");const alt=altitudeFt(a),id=aircraftId(a);document.getElementById("selectedTitle").innerHTML=`${clean(a.r,a.hex?.toUpperCase()||"NO REG")} · ${countryHtml(a)}`;document.getElementById("selectedSubtitle").textContent=`${clean(a.t,"UNKNOWN")} · ${clean(a.flight,"NO CALLSIGN")} · ${Math.round(heading(a))}° · TRACK SINCE ${new Date(SESSION_STARTED_AT).toLocaleTimeString("de-DE",{hour:"2-digit",minute:"2-digit"})}`;document.getElementById("selectedBadges").innerHTML=badgesHtml(a,nearestIdFor(filteredAircraft())?.id);document.getElementById("selectedAltitude").textContent=alt===0?"GROUND":formatFeet(alt);document.getElementById("selectedSpeed").textContent=formatKnots(speedKt(a));document.getElementById("selectedVertical").textContent=formatVertical(a);document.getElementById("selectedDistance").textContent=`${distanceNm(CENTER,{lat:Number(a.lat),lon:Number(a.lon)}).toFixed(1)} NM`;document.getElementById("selectedMuc").textContent=mucStatus(a);document.getElementById("selectedCategory").textContent=categoryLabel(category(a));const btn=document.getElementById("trackToggleBtn");btn.textContent=trackedIds.has(id)?"HIDE TRACK":"SHOW TRACK";btn.classList.toggle("active",trackedIds.has(id));identifySelectedAircraft()}
+    function updateSelectedPanel(){const p=document.getElementById("selectedPanel"),a=lastAircraft.find(x=>aircraftId(x)===selectedAircraftId);if(!a){p.classList.remove("visible");return}p.classList.add("visible");const alt=altitudeFt(a),id=aircraftId(a);document.getElementById("selectedTitle").innerHTML=`${clean(a.r,a.hex?.toUpperCase()||"NO REG")} · ${countryHtml(a)}`;document.getElementById("selectedSubtitle").textContent=`${clean(a.t,"UNKNOWN")} · ${clean(a.flight,"NO CALLSIGN")} · ${Math.round(heading(a))}° · TRACK SINCE ${new Date(SESSION_STARTED_AT).toLocaleTimeString("de-DE",{hour:"2-digit",minute:"2-digit"})}`;document.getElementById("selectedBadges").innerHTML=badgesHtml(a,nearestIdFor(filteredAircraft())?.id);document.getElementById("selectedAltitude").textContent=alt===0?"GROUND":formatFeet(alt);document.getElementById("selectedSpeed").textContent=formatKnots(speedKt(a));document.getElementById("selectedVertical").textContent=formatVertical(a);document.getElementById("selectedDistance").textContent=`${distanceNm(CENTER,{lat:Number(a.lat),lon:Number(a.lon)}).toFixed(1)} NM`;document.getElementById("selectedMuc").textContent=mucStatus(a);document.getElementById("selectedCategory").textContent=categoryLabel(category(a));const btn=document.getElementById("trackToggleBtn");btn.textContent=trackedIds.has(id)?"HIDE TRACK":"SHOW TRACK";btn.classList.toggle("active",trackedIds.has(id));updateSelectedPhoto(a);identifySelectedAircraft()}
 
     function updateSidebar(arr,nearest){const airborne=arr.filter(a=>altitudeFt(a)!==0),alts=arr.map(altitudeFt).filter(Number.isFinite),nearestId=nearest?.id||null;document.getElementById("aircraftCount").textContent=arr.length;document.getElementById("airborneCount").textContent=airborne.length;document.getElementById("militaryCount").textContent=arr.filter(isMilitary).length;document.getElementById("nearestAircraft").textContent=nearest?nearest.d.toFixed(1):"—";const list=document.getElementById("aircraftList");list.innerHTML="";arr.slice().sort((a,b)=>Number(isEmergency(b))-Number(isEmergency(a))||Number(isMilitary(b))-Number(isMilitary(a))||distanceNm(CENTER,{lat:Number(a.lat),lon:Number(a.lon)})-distanceNm(CENTER,{lat:Number(b.lat),lon:Number(b.lon)})).forEach(a=>{const id=aircraftId(a),alt=altitudeFt(a),cls=altitudeColorClass(a),cached=routeCache.get(callsign(a)),route=cached&&typeof cached.then!=="function"?routeText(cached):(callsign(a)?"Route wird geladen …":"Route nicht verfügbar"),row=document.createElement("div");row.className=`aircraft-row ${isMilitary(a)?"military ":""}${isEmergency(a)?"emergency ":""}${id===nearestId?"nearest ":""}${id===selectedAircraftId?"selected":""}`;const spec=iconSpec(a);row.innerHTML=`<div class="aircraft-icon ${cls}" title="${categoryLabel(category(a))} / ${spec.size.toUpperCase()}">${aircraftSvgFor(a,heading(a),"list")}</div><div class="aircraft-main"><strong>${clean(a.flight,clean(a.r,a.hex?.toUpperCase()))}${badgesHtml(a,nearestId)}</strong><span>${countryHtml(a)} · ${categoryLabel(category(a))} · ${clean(a.t,"TYPE UNKNOWN")} · ${spec.size.toUpperCase()} · ${formatVertical(a)}</span><span class="route ${cached?"":"loading"}">${route}</span></div><div class="aircraft-data"><span>${alt===0?"GROUND":formatFeet(alt)}</span><span>${distanceNm(CENTER,{lat:Number(a.lat),lon:Number(a.lon)}).toFixed(1)} NM</span></div>`;row.addEventListener("click",async()=>{selectAircraft(a);map.setView([Number(a.lat),Number(a.lon)],Math.max(map.getZoom(),11));markers.get(id)?.openPopup();await getRoute(a);markers.get(id)?.setPopupContent(popupHtml(a));updateSidebar(filteredAircraft(),nearestIdFor(filteredAircraft()))});list.appendChild(row)});if(!arr.length)list.innerHTML='<div style="padding:18px;color:#a9a9a9;font-size:11px;line-height:1.6;border:1px solid rgba(255,255,255,.12);border-radius:12px;background:#050505">Keine passenden Bewegungen im aktiven Filter.</div>'}
 
