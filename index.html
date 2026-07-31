@@ -689,7 +689,7 @@
   </aside>
 
   <div id="alertBanner" class="alert-banner"><strong>MIL ENTRY //</strong> <span id="alertText"></span></div>
-  <div class="notice">Öffentlich empfangene ADS-B-/MLAT-Daten. M.A.R.V.I.N. kombiniert Live-Daten mit zentral gespeicherten D1-Flugspuren. Beim Anklicken eines Flugzeugs wird dessen verfügbarer Track angezeigt. Nicht zur Navigation oder Einsatzführung.</div>
+  <div class="notice">Öffentlich empfangene ADS-B-/MLAT-Daten. M.A.R.V.I.N. kombiniert Live-Daten mit zentral gespeicherten D1-Flugspuren. Beim Anklicken eines Flugzeugs wird nur der aktuell erkannte Flugabschnitt angezeigt. Nicht zur Navigation oder Einsatzführung.</div>
 
   <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" crossorigin=""></script>
   <script>
@@ -1484,7 +1484,14 @@
     function nearestIdFor(arr){if(!arr.length)return null;return arr.reduce((best,a)=>{const d=distanceNm(CENTER,{lat:Number(a.lat),lon:Number(a.lon)});return !best||d<best.d?{id:aircraftId(a),d}:best},null)}
     function addTrackPoint(a){
       const id=aircraftId(a);
-      const pt={lat:Number(a.lat),lon:Number(a.lon),t:Date.now()};
+      const pt={
+        lat:Number(a.lat),
+        lon:Number(a.lon),
+        t:Date.now(),
+        altitudeFt:altitudeFt(a),
+        speedKt:speedKt(a),
+        callsign:callsign(a)
+      };
       const h=trackHistory.get(id)||[];
       const p=h[h.length-1];
 
@@ -1492,11 +1499,6 @@
         h.push(pt);
       }
 
-      /*
-       * Positionspunkte bleiben für die gesamte geöffnete Sitzung erhalten.
-       * Das Limit verhindert unbegrenztes Speicherwachstum:
-       * 720 Punkte entsprechen bei 30 Sekunden Intervall etwa 6 Stunden.
-       */
       if(h.length>MAX_TRACK_POINTS){
         h.splice(0,h.length-MAX_TRACK_POINTS);
       }
@@ -1504,14 +1506,83 @@
       trackHistory.set(id,h);
     }
 
+    function isGroundTrackPoint(point){
+      const altitude=Number(point.altitudeFt);
+      const speed=Number(point.speedKt);
+      return Number.isFinite(altitude)&&altitude<=180&&Number.isFinite(speed)&&speed<=55;
+    }
+
+    function isAirborneTrackPoint(point){
+      const altitude=Number(point.altitudeFt);
+      const speed=Number(point.speedKt);
+      return (Number.isFinite(altitude)&&altitude>=450)||(Number.isFinite(speed)&&speed>=75);
+    }
+
+    function currentFlightSegment(points){
+      const ordered=points
+        .filter(point=>Number.isFinite(point.lat)&&Number.isFinite(point.lon)&&Number.isFinite(point.t))
+        .sort((a,b)=>a.t-b.t);
+
+      if(ordered.length<2)return ordered;
+
+      let segmentStart=0;
+      let groundStart=-1;
+      let groundCount=0;
+
+      for(let i=1;i<ordered.length;i++){
+        const previous=ordered[i-1];
+        const current=ordered[i];
+        const gapMs=current.t-previous.t;
+        const previousCallsign=String(previous.callsign||"").trim().toUpperCase();
+        const currentCallsign=String(current.callsign||"").trim().toUpperCase();
+
+        // A longer reception gap usually indicates that the previous leg ended.
+        if(gapMs>12*60*1000){
+          segmentStart=i;
+          groundStart=-1;
+          groundCount=0;
+          continue;
+        }
+
+        // A changed operational callsign denotes a new flight even if the airframe is the same.
+        if(previousCallsign&&currentCallsign&&previousCallsign!==currentCallsign){
+          segmentStart=i;
+          groundStart=-1;
+          groundCount=0;
+          continue;
+        }
+
+        if(isGroundTrackPoint(current)){
+          if(groundStart<0)groundStart=i;
+          groundCount++;
+          continue;
+        }
+
+        // After a genuine ground phase, start the visible track at the new departure.
+        if(groundStart>=0&&groundCount>=2&&isAirborneTrackPoint(current)){
+          const groundDuration=current.t-ordered[groundStart].t;
+          if(groundDuration>=90*1000){
+            segmentStart=i;
+          }
+          groundStart=-1;
+          groundCount=0;
+        }else if(!isGroundTrackPoint(current)){
+          groundStart=-1;
+          groundCount=0;
+        }
+      }
+
+      return ordered.slice(segmentStart);
+    }
+
     function renderAircraft(ac){lastAircraft=ac.filter(a=>Number.isFinite(Number(a.lat))&&Number.isFinite(Number(a.lon)));lastAircraft.forEach(addTrackPoint);checkMilitaryEntries();applyFilter();trackedIds.forEach(drawTrail);if(selectedAircraftId)updateSelectedPanel()}
     function clearTrail(id){const layer=trailLayers.get(id);if(layer){layer.forEach(l=>map.removeLayer(l));trailLayers.delete(id)}}
     function drawTrail(id){
       clearTrail(id);
 
-      const mode="session";
+      const mode="current-flight";
       const allHistory=trackHistory.get(id)||[];
-      const history=allHistory;
+      const history=currentFlightSegment(allHistory);
 
       if(history.length<2)return;
 
@@ -1574,9 +1645,7 @@
           interactive:false,
           icon:L.divIcon({
             className:"",
-            html:`<div class="trail-label">${
-              mode==="session"?"SESSION":"TRACK "+mode+" MIN"
-            } // ${a?callsign(a)||clean(a.r,id.toUpperCase()):id.toUpperCase()}</div>`,
+            html:`<div class="trail-label">CURRENT FLIGHT // ${a?callsign(a)||clean(a.r,id.toUpperCase()):id.toUpperCase()}</div>`,
             iconAnchor:[-12,28]
           })
         }
@@ -1590,7 +1659,14 @@
         const response=await fetch(`${AIRCRAFT_API}/track?icao=${encodeURIComponent(id.replace(/^~/,""))}&minutes=${minutes}`,{cache:"no-store"});
         if(!response.ok)throw new Error(`Track HTTP ${response.status}`);
         const data=await response.json();
-        const remote=(data.points||[]).map(p=>({lat:Number(p.lat),lon:Number(p.lon),t:Number(p.ts)*1000})).filter(p=>Number.isFinite(p.lat)&&Number.isFinite(p.lon));
+        const remote=(data.points||[]).map(p=>({
+          lat:Number(p.lat),
+          lon:Number(p.lon),
+          t:Number(p.ts)*1000,
+          altitudeFt:Number(p.altitude_ft),
+          speedKt:Number(p.ground_speed_kt),
+          callsign:String(p.callsign||"").trim().toUpperCase()
+        })).filter(p=>Number.isFinite(p.lat)&&Number.isFinite(p.lon)&&Number.isFinite(p.t));
         const local=trackHistory.get(id)||[];
         const merged=[...remote,...local].sort((a,b)=>a.t-b.t).filter((p,i,arr)=>i===0||p.t!==arr[i-1].t||p.lat!==arr[i-1].lat||p.lon!==arr[i-1].lon);
         trackHistory.set(id,merged.slice(-MAX_TRACK_POINTS));
