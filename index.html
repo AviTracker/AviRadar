@@ -593,6 +593,138 @@
     .weather-metric b{font-size:9px}
     .weather-hours{display:none!important}
 
+
+    .mobile-dock{display:none}
+
+    @media(max-width:760px){
+      html,body{height:100%;min-height:100%;overflow:hidden;overscroll-behavior:none}
+      #map{bottom:0}
+      .leaflet-control-zoom{top:96px!important}
+      .leaflet-control-attribution{display:none}
+
+      .topbar{
+        top:8px;left:8px;right:8px;
+        min-height:0;padding:9px 10px 8px;
+        display:block;border-radius:15px;
+      }
+      .topbar:after{right:14px;left:14px}
+      .brand{display:block}
+      .brand-copy h1{margin:0;font-size:12px;letter-spacing:.1em}
+      .brand-copy h1:before{content:"AviRadar // ";display:inline;color:var(--accent)}
+      .brand-copy p{display:none}
+      .controls{
+        width:100%;margin:8px 0 0;
+        display:flex;flex-wrap:nowrap;justify-content:flex-start;
+        gap:5px;overflow-x:auto;overflow-y:hidden;
+        padding:0 0 2px;scrollbar-width:none;
+        -webkit-overflow-scrolling:touch;
+      }
+      .controls::-webkit-scrollbar{display:none}
+      .status{display:none}
+      .segment{flex:0 0 auto;padding:3px;border-radius:10px}
+      .segment button{height:31px;min-width:48px;padding:0 8px;font-size:8px}
+      button.control,select.control{
+        display:block!important;flex:0 0 auto;
+        height:37px;max-width:138px;padding:0 9px;
+        border-radius:10px;font-size:8px;
+      }
+      #centerBtn{display:none!important}
+      #refreshBtn{position:absolute;top:7px;right:8px;height:31px}
+
+      .sidebar,.departures-panel{
+        z-index:1002;
+        top:44vh;right:0;bottom:56px;left:0;
+        width:auto;height:auto;max-height:none;
+        border-right:0;border-bottom:0;border-left:0;
+        border-radius:20px 20px 0 0;
+        box-shadow:0 -16px 50px rgba(0,0,0,.58);
+        transform:none!important;opacity:1!important;
+        transition:transform .22s ease,opacity .22s ease;
+      }
+      .sidebar:before,.departures-panel:before{
+        min-height:32px;padding:9px 14px 7px;
+        text-align:center;
+      }
+      .sidebar:after,.departures-panel:after{
+        content:"";position:absolute;top:7px;left:50%;z-index:3;
+        width:42px;height:4px;transform:translateX(-50%);
+        background:rgba(255,255,255,.35);border-radius:8px;
+      }
+      .departures-panel{display:flex}
+      body.mobile-view-aircraft .departures-panel,
+      body.mobile-view-map .departures-panel{transform:translateY(calc(100% + 60px))!important;pointer-events:none}
+      body.mobile-view-departures .sidebar,
+      body.mobile-view-map .sidebar{transform:translateY(calc(100% + 60px))!important;pointer-events:none}
+      body.mobile-view-map .leaflet-control-zoom{top:112px!important}
+
+      .summary{padding:9px 10px 7px}
+      .summary-grid{grid-template-columns:repeat(5,minmax(58px,1fr));gap:5px;overflow-x:auto;scrollbar-width:none}
+      .summary-grid::-webkit-scrollbar{display:none}
+      .metric{min-width:58px;padding:7px 4px}
+      .metric strong{font-size:14px}
+      .metric span{font-size:6px}
+      .filter-note{display:none}
+      .legend{padding:7px 10px;gap:8px;overflow-x:auto;white-space:nowrap;scrollbar-width:none}
+      .legend::-webkit-scrollbar{display:none}
+      .list-header{padding:8px 12px 6px}
+      #aircraftList{padding:6px 8px 18px}
+      .aircraft-row{grid-template-columns:30px minmax(0,1fr) auto;gap:7px;padding:9px 8px;margin-bottom:6px;border-radius:11px}
+      .aircraft-main strong{font-size:11px}
+      .aircraft-main span{font-size:7px}
+      .aircraft-data span:first-child{font-size:9px}
+      .aircraft-data span:last-child{font-size:7px}
+
+      .selected-panel{max-height:calc(56vh - 48px);overflow:auto;padding:12px 11px 18px}
+      .selected-head{position:sticky;top:-12px;z-index:2;margin:-12px -11px 10px;padding:12px 11px 9px;background:rgba(5,5,5,.96);border-bottom:1px solid var(--line-soft)}
+      .selected-head strong{font-size:14px}
+      .selected-head small{font-size:7px;line-height:1.45;white-space:normal}
+      .selected-grid{grid-template-columns:repeat(2,minmax(0,1fr));gap:6px}
+      .selected-cell{padding:8px}
+      .selected-cell b{font-size:10px}
+      .intelligence-panel{padding:10px}
+      .intelligence-grid{grid-template-columns:92px minmax(0,1fr);font-size:8px}
+      .selected-photo-stage{min-height:165px;max-height:230px}
+      .selected-actions{display:grid;grid-template-columns:1fr 1fr;gap:6px}
+      .selected-actions button{min-height:40px;font-size:8px}
+
+      .weather-window{padding:10px 12px 9px}
+      .weather-temp{font-size:24px}
+      .weather-icon{width:28px;height:28px;font-size:22px}
+      .weather-metrics{grid-template-columns:repeat(3,1fr)}
+      .departures-head{padding:10px 12px}
+      .departures-head strong{font-size:10px}
+      .departures-head small{font-size:7px}
+      .departures-table-wrap{overflow:auto;padding-bottom:18px}
+      .departures-table{min-width:560px}
+      .departures-foot{display:none}
+
+      .notice{display:none}
+      .alert-banner{right:10px;bottom:68px;left:10px;width:auto}
+
+      .mobile-dock{
+        position:fixed;z-index:1100;right:0;bottom:0;left:0;
+        height:57px;padding:6px 8px max(6px,env(safe-area-inset-bottom));
+        display:grid;grid-template-columns:repeat(3,1fr);gap:6px;
+        background:rgba(3,3,3,.97);border-top:1px solid var(--line);
+        backdrop-filter:blur(18px);
+      }
+      .mobile-dock button{
+        min-width:0;color:var(--muted);background:#080808;
+        border:1px solid var(--line-soft);border-radius:11px;
+        font-family:"Roboto Mono",monospace;font-size:8px;font-weight:700;
+        letter-spacing:.06em;text-transform:uppercase;
+      }
+      .mobile-dock button.active{color:#000;background:var(--accent);border-color:var(--accent)}
+    }
+
+    @media(max-width:390px){
+      .sidebar,.departures-panel{top:46vh}
+      .brand-copy h1{font-size:11px}
+      .segment button{min-width:43px}
+      button.control,select.control{max-width:122px;padding:0 7px}
+      .selected-grid{grid-template-columns:1fr 1fr}
+    }
+
   </style>
 </head>
 <body class="map-ops">
@@ -600,7 +732,6 @@
   <header class="topbar">
     <div class="brand">
       <div class="brand-copy"><h1>M.A.R.V.I.N.</h1><p>Marketing Avilus Radar for Visual Identification &amp; Navigation · Ismaning</p></div>
-    </div>
     </div>
     <div class="controls">
       <div class="status" aria-live="polite"><span id="statusDot" class="status-dot"></span><span id="statusText">Verbinde …</span></div>
@@ -687,6 +818,12 @@
       wenn zum Callsign keine Route verfügbar ist.
     </div>
   </aside>
+
+  <nav class="mobile-dock" aria-label="Mobile Ansicht">
+    <button type="button" data-mobile-view="map">MAP</button>
+    <button type="button" data-mobile-view="aircraft" class="active">AIRCRAFT</button>
+    <button type="button" data-mobile-view="departures">DEPARTURES</button>
+  </nav>
 
   <div id="alertBanner" class="alert-banner"><strong>MIL ENTRY //</strong> <span id="alertText"></span></div>
   <div class="notice">Öffentlich empfangene ADS-B-/MLAT-Daten. M.A.R.V.I.N. kombiniert Live-Daten mit zentral gespeicherten D1-Flugspuren. Beim Anklicken eines Flugzeugs wird nur der aktuell erkannte Flugabschnitt angezeigt. Nicht zur Navigation oder Einsatzführung.</div>
@@ -1703,6 +1840,7 @@
     }
 
     function selectAircraft(a){
+      if(window.matchMedia("(max-width:760px)").matches)setMobileView("aircraft");
       const nextId=aircraftId(a);
 
       for(const oldId of [...trackedIds]){
@@ -2049,6 +2187,24 @@
 
     document.getElementById("refreshBtn").addEventListener("click",loadAircraft);
     document.getElementById("centerBtn").addEventListener("click",()=>map.setView([CENTER.lat,CENTER.lon],9));
+    function setMobileView(view){
+      if(!["map","aircraft","departures"].includes(view))view="aircraft";
+      document.body.classList.remove("mobile-view-map","mobile-view-aircraft","mobile-view-departures");
+      document.body.classList.add(`mobile-view-${view}`);
+      document.querySelectorAll("[data-mobile-view]").forEach(button=>button.classList.toggle("active",button.dataset.mobileView===view));
+      if(view==="map")setTimeout(()=>map.invalidateSize(),230);
+    }
+
+    document.querySelectorAll("[data-mobile-view]").forEach(button=>{
+      button.addEventListener("click",()=>setMobileView(button.dataset.mobileView));
+    });
+
+    if(window.matchMedia("(max-width:760px)").matches)setMobileView("aircraft");
+    window.addEventListener("resize",()=>{
+      if(window.matchMedia("(max-width:760px)").matches&&!document.body.classList.contains("mobile-view-map")&&!document.body.classList.contains("mobile-view-aircraft")&&!document.body.classList.contains("mobile-view-departures"))setMobileView("aircraft");
+      setTimeout(()=>map.invalidateSize(),80);
+    });
+
     document.querySelectorAll("#trafficSegment button").forEach(btn=>btn.addEventListener("click",()=>{activeFilter=btn.dataset.filter;document.querySelectorAll("#trafficSegment button").forEach(x=>x.classList.toggle("active",x===btn));applyFilter();primeRoutes(filteredAircraft())}));
     document.getElementById("categorySelect").addEventListener("change",e=>{activeCategory=e.target.value;applyFilter()});
     document.getElementById("airportModeBtn").addEventListener("click",e=>{airportMode=!airportMode;e.currentTarget.classList.toggle("secondary-active",airportMode);applyFilter()});
