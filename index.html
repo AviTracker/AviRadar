@@ -1673,8 +1673,8 @@
         const previousCallsign=String(previous.callsign||"").trim().toUpperCase();
         const currentCallsign=String(current.callsign||"").trim().toUpperCase();
 
-        // A longer reception gap usually indicates that the previous leg ended.
-        if(gapMs>12*60*1000){
+        // A reception gap of more than 20 minutes usually indicates that the previous leg ended.
+        if(gapMs>20*60*1000){
           segmentStart=i;
           groundStart=-1;
           groundCount=0;
